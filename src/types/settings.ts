@@ -4,7 +4,3 @@ export interface OpenClawConfig {
   gateway?: Record<string, unknown>;
   [key: string]: unknown;
 }
-
-export interface SettingsTarget {
-  path: string;
-}

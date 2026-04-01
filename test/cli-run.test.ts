@@ -5,7 +5,6 @@ import test from "node:test";
 import { parseCliOptions, parseCliRequest, run } from "../src/cli.js";
 import { DEFAULT_MODEL, DEFAULT_MODEL_KEY, toPrimaryModelRef } from "../src/constants/models.js";
 import { getSettingsTarget } from "../src/install/settings-paths.js";
-import type { RuntimeVerificationFailureKind } from "../src/install/verify-runtime.js";
 import { createTempFilePath, withCapturedConsoleLog, withMutedConsoleLog } from "./test-helpers.js";
 
 const silentOutput = {
@@ -28,28 +27,30 @@ type InstallHarnessDependencies = Pick<
   | "validateApiKey"
   | "validateOpenClawConfig"
   | "validateSettingsBeforeWrite"
-  | "verifyOpenClawRuntime"
+  | "verifyOpenClawRuntimeForInstall"
   | "writeSettings"
 >;
 type VerifyHarnessDependencies = Pick<
   CliDependencies,
-  "ensureOpenClawInstalled" | "getSettingsTarget" | "loadSettings" | "validateOpenClawConfig" | "verifyOpenClawRuntime" | "verifySettings"
+  | "ensureOpenClawInstalled"
+  | "getSettingsTarget"
+  | "loadSettings"
+  | "validateOpenClawConfig"
+  | "verifyOpenClawRuntimeForVerify"
+  | "verifySettings"
 >;
 
 function createHealthyRuntimeResult() {
   return {
+    kind: "healthy" as const,
     resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
-    status: "healthy" as const
   };
 }
 
-function createRuntimeFailureResult(
-  status: RuntimeVerificationFailureKind,
-  message: string
-) {
+function createGatewayUnavailableInstallResult() {
   return {
-    message,
-    status
+    kind: "gateway_unavailable" as const,
+    nextCommand: "openclaw gateway"
   };
 }
 
@@ -135,7 +136,7 @@ function createInstallHarness(overrides: Partial<InstallHarnessDependencies> = {
       state.gatewayBootstrapCalls += 1;
       state.order.push("bootstrapGateway");
       return {
-        configuredLocalMode: true,
+        kind: "added_local_mode",
         settings: {
           ...settings,
           gateway: {
@@ -144,9 +145,7 @@ function createInstallHarness(overrides: Partial<InstallHarnessDependencies> = {
         }
       };
     },
-    getSettingsTarget: () => ({
-      path: "/tmp/openclaw.json"
-    }),
+    getSettingsTarget: () => "/tmp/openclaw.json",
     initializeOpenClawBaseConfig: () => {
       state.setupCalls += 1;
       state.order.push("setup");
@@ -156,7 +155,7 @@ function createInstallHarness(overrides: Partial<InstallHarnessDependencies> = {
       state.loadPaths.push(filePath);
       state.order.push("load");
       return {
-        exists: true,
+        kind: "loaded",
         settings: {}
       };
     },
@@ -185,7 +184,7 @@ function createInstallHarness(overrides: Partial<InstallHarnessDependencies> = {
       state.prewriteValidationPaths.push(filePath);
       state.order.push("validateSettingsBeforeWrite");
     },
-    verifyOpenClawRuntime: (filePath, expectedPrimaryModelRef) => {
+    verifyOpenClawRuntimeForInstall: (filePath, expectedPrimaryModelRef) => {
       state.runtimeVerifyCalls += 1;
       state.runtimeVerifyInputs.push({
         expectedPrimaryModelRef,
@@ -231,15 +230,13 @@ function createVerifyHarness(overrides: Partial<VerifyHarnessDependencies> = {})
       state.ensureCalls += 1;
       state.order.push("ensure");
     },
-    getSettingsTarget: () => ({
-      path: "/tmp/openclaw.json"
-    }),
+    getSettingsTarget: () => "/tmp/openclaw.json",
     loadSettings: async (filePath) => {
       state.loadCalls += 1;
       state.loadPaths.push(filePath);
       state.order.push("load");
       return {
-        exists: true,
+        kind: "loaded",
         settings: {}
       };
     },
@@ -248,7 +245,7 @@ function createVerifyHarness(overrides: Partial<VerifyHarnessDependencies> = {})
       state.configValidationPaths.push(filePath);
       state.order.push("validateOpenClawConfig");
     },
-    verifyOpenClawRuntime: (filePath, expectedPrimaryModelRef) => {
+    verifyOpenClawRuntimeForVerify: (filePath, expectedPrimaryModelRef) => {
       state.runtimeVerifyCalls += 1;
       state.runtimeVerifyInputs.push({
         expectedPrimaryModelRef,
@@ -305,9 +302,7 @@ test("run initializes missing OpenClaw config automatically and skips backup on 
         return "/tmp/should-not-exist.backup";
       },
       ensureOpenClawInstalled: () => {},
-      getSettingsTarget: () => ({
-        path: "/tmp/openclaw.json"
-      }),
+      getSettingsTarget: () => "/tmp/openclaw.json",
       initializeOpenClawBaseConfig: () => {
         setupCalls += 1;
       },
@@ -316,12 +311,12 @@ test("run initializes missing OpenClaw config automatically and skips backup on 
 
         if (loadCount === 1) {
           return {
-            exists: false
+            kind: "missing"
           };
         }
 
         return {
-          exists: true,
+          kind: "loaded",
           settings: {
             agents: {
               defaults: {
@@ -337,7 +332,7 @@ test("run initializes missing OpenClaw config automatically and skips backup on 
         };
       },
       ensureFreshInstallLocalGateway: (settings) => ({
-        configuredLocalMode: true,
+        kind: "added_local_mode",
         settings: {
           ...settings,
           gateway: {
@@ -351,7 +346,7 @@ test("run initializes missing OpenClaw config automatically and skips backup on 
       validateApiKey: (apiKey) => apiKey,
       validateOpenClawConfig: () => {},
       validateSettingsBeforeWrite: async () => {},
-      verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline"),
+      verifyOpenClawRuntimeForInstall: () => createGatewayUnavailableInstallResult(),
       writeSettings: async (_filePath, settings) => {
         writtenSettings = settings as Record<string, unknown>;
       }
@@ -395,9 +390,7 @@ test("run preserves an existing gateway.mode from fresh OpenClaw setup output", 
   await withMutedConsoleLog(async () => {
     await run([], {
       ensureOpenClawInstalled: () => {},
-      getSettingsTarget: () => ({
-        path: "/tmp/openclaw.json"
-      }),
+      getSettingsTarget: () => "/tmp/openclaw.json",
       initializeOpenClawBaseConfig: () => {},
       loadSettings: (() => {
         let loadCount = 0;
@@ -407,12 +400,12 @@ test("run preserves an existing gateway.mode from fresh OpenClaw setup output", 
 
           if (loadCount === 1) {
             return {
-              exists: false
+              kind: "missing"
             };
           }
 
           return {
-            exists: true,
+            kind: "loaded",
             settings: {
               gateway: {
                 bind: "loopback",
@@ -423,7 +416,7 @@ test("run preserves an existing gateway.mode from fresh OpenClaw setup output", 
         };
       })(),
       ensureFreshInstallLocalGateway: (settings) => ({
-        configuredLocalMode: false,
+        kind: "preserved_existing_mode",
         settings
       }),
       promptForApiKey: async () => "gp-test-key",
@@ -431,7 +424,7 @@ test("run preserves an existing gateway.mode from fresh OpenClaw setup output", 
       validateApiKey: (apiKey) => apiKey,
       validateOpenClawConfig: () => {},
       validateSettingsBeforeWrite: async () => {},
-      verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline"),
+      verifyOpenClawRuntimeForInstall: () => createGatewayUnavailableInstallResult(),
       writeSettings: async (_filePath, settings) => {
         writtenSettings = settings as Record<string, unknown>;
       }
@@ -450,7 +443,7 @@ test("run does not rewrite gateway.mode for existing configs", async () => {
       state.loadCalls += 1;
       state.order.push("load");
       return {
-        exists: true,
+        kind: "loaded",
         settings: {
           gateway: {
             auth: {
@@ -460,7 +453,7 @@ test("run does not rewrite gateway.mode for existing configs", async () => {
         }
       };
     },
-    verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline")
+    verifyOpenClawRuntimeForInstall: () => createGatewayUnavailableInstallResult()
   });
 
   await withMutedConsoleLog(async () => {
@@ -492,7 +485,7 @@ test("run creates a backup once before writing when updating an existing config"
 test("run install uses the resolved target path from OpenClaw env precedence", async () => {
   const resolvedTargetPath = getSettingsTarget("/tmp/test-home", {
     OPENCLAW_STATE_DIR: "/tmp/openclaw-state"
-  }).path;
+  });
   const { dependencies, state } = createInstallHarness({
     getSettingsTarget: () =>
       getSettingsTarget("/tmp/test-home", {
@@ -519,7 +512,7 @@ test("run install uses the resolved target path from OpenClaw env precedence", a
 
 test("run succeeds after writing a config when the Gateway is not running yet and prints one exact next command", async () => {
   const { dependencies } = createInstallHarness({
-    verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline")
+    verifyOpenClawRuntimeForInstall: () => createGatewayUnavailableInstallResult()
   });
 
   const { logs } = await withCapturedConsoleLog(async () => {
@@ -534,7 +527,9 @@ test("run succeeds after writing a config when the Gateway is not running yet an
 
 test("run fails after writing when the Gateway is reachable but unhealthy", async () => {
   const { dependencies, state } = createInstallHarness({
-    verifyOpenClawRuntime: () => createRuntimeFailureResult("runtime_unhealthy", "health failed")
+    verifyOpenClawRuntimeForInstall: () => {
+      throw new Error("health failed");
+    }
   });
 
   await assert.rejects(
@@ -549,7 +544,9 @@ test("run fails after writing when the Gateway is reachable but unhealthy", asyn
 
 test("run fails after writing when the resolved model does not match the saved config", async () => {
   const { dependencies, state } = createInstallHarness({
-    verifyOpenClawRuntime: () => createRuntimeFailureResult("model_resolution_failed", "resolved wrong model")
+    verifyOpenClawRuntimeForInstall: () => {
+      throw new Error("resolved wrong model");
+    }
   });
 
   await assert.rejects(
@@ -604,7 +601,7 @@ test("run verify uses the resolved target path from OpenClaw env precedence", as
     OPENCLAW_CONFIG_PATH: "/tmp/custom-openclaw.json",
     OPENCLAW_HOME: "/tmp/ignored-openclaw-home",
     OPENCLAW_STATE_DIR: "/tmp/ignored-openclaw-state"
-  }).path;
+  });
   const { dependencies, state } = createVerifyHarness({
     getSettingsTarget: () =>
       getSettingsTarget("/tmp/test-home", {
@@ -631,10 +628,10 @@ test("run verify uses the resolved target path from OpenClaw env precedence", as
 
 test("run verify stays strict when the Gateway is unavailable", async () => {
   const { dependencies, state } = createVerifyHarness({
-    verifyOpenClawRuntime: () => {
+    verifyOpenClawRuntimeForVerify: () => {
       state.runtimeVerifyCalls += 1;
       state.order.push("verifyRuntime");
-      return createRuntimeFailureResult("gateway_unavailable", "gateway offline");
+      throw new Error("gateway offline");
     }
   });
 
@@ -679,7 +676,7 @@ test("run verify fails clearly when the OpenClaw config does not exist yet", asy
       state.loadCalls += 1;
       state.order.push("load");
       return {
-        exists: false
+        kind: "missing"
       };
     }
   });
@@ -732,13 +729,11 @@ test("run verify succeeds against a real temp config without mutating it", async
   await withMutedConsoleLog(async () => {
     await run(["verify"], {
       ensureOpenClawInstalled: () => {},
-      getSettingsTarget: () => ({
-        path: filePath
-      }),
+      getSettingsTarget: () => filePath,
       validateOpenClawConfig: () => {},
-      verifyOpenClawRuntime: () => ({
+      verifyOpenClawRuntimeForVerify: () => ({
+        kind: "healthy",
         resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
-        status: "healthy"
       })
     });
   });
@@ -755,16 +750,14 @@ test("run surfaces a clear error when OpenClaw setup does not create the config"
     withMutedConsoleLog(async () => {
       await run([], {
         ensureOpenClawInstalled: () => {},
-        getSettingsTarget: () => ({
-          path: "/tmp/openclaw.json"
-        }),
+        getSettingsTarget: () => "/tmp/openclaw.json",
         initializeOpenClawBaseConfig: () => {
           setupCalls += 1;
         },
         loadSettings: async () => {
           loadCount += 1;
           return {
-            exists: false
+            kind: "missing"
           };
         },
         promptForApiKey: async () => {
@@ -858,7 +851,7 @@ test("run stops before any OpenClaw work when resolving the target path fails", 
 test("getSettingsTarget points at the default OpenClaw config path", () => {
   const target = getSettingsTarget("/tmp/test-home");
 
-  assert.equal(target.path, path.join("/tmp/test-home", ".openclaw", "openclaw.json"));
+  assert.equal(target, path.join("/tmp/test-home", ".openclaw", "openclaw.json"));
 });
 
 test("getSettingsTarget uses OPENCLAW_CONFIG_PATH as the exact config file path", () => {
@@ -866,7 +859,7 @@ test("getSettingsTarget uses OPENCLAW_CONFIG_PATH as the exact config file path"
     OPENCLAW_CONFIG_PATH: "/tmp/custom-openclaw.json"
   });
 
-  assert.equal(target.path, "/tmp/custom-openclaw.json");
+  assert.equal(target, "/tmp/custom-openclaw.json");
 });
 
 test("getSettingsTarget uses OPENCLAW_STATE_DIR when OPENCLAW_CONFIG_PATH is not set", () => {
@@ -874,7 +867,7 @@ test("getSettingsTarget uses OPENCLAW_STATE_DIR when OPENCLAW_CONFIG_PATH is not
     OPENCLAW_STATE_DIR: "/tmp/openclaw-state"
   });
 
-  assert.equal(target.path, path.join("/tmp/openclaw-state", "openclaw.json"));
+  assert.equal(target, path.join("/tmp/openclaw-state", "openclaw.json"));
 });
 
 test("getSettingsTarget uses OPENCLAW_HOME when higher-precedence overrides are not set", () => {
@@ -882,7 +875,7 @@ test("getSettingsTarget uses OPENCLAW_HOME when higher-precedence overrides are 
     OPENCLAW_HOME: "/tmp/openclaw-home"
   });
 
-  assert.equal(target.path, path.join("/tmp/openclaw-home", ".openclaw", "openclaw.json"));
+  assert.equal(target, path.join("/tmp/openclaw-home", ".openclaw", "openclaw.json"));
 });
 
 test("getSettingsTarget gives OPENCLAW_CONFIG_PATH precedence over OPENCLAW_STATE_DIR and OPENCLAW_HOME", () => {
@@ -892,7 +885,7 @@ test("getSettingsTarget gives OPENCLAW_CONFIG_PATH precedence over OPENCLAW_STAT
     OPENCLAW_STATE_DIR: "/tmp/openclaw-state"
   });
 
-  assert.equal(target.path, "/tmp/custom-openclaw.json");
+  assert.equal(target, "/tmp/custom-openclaw.json");
 });
 
 test("getSettingsTarget gives OPENCLAW_STATE_DIR precedence over OPENCLAW_HOME", () => {
@@ -901,7 +894,7 @@ test("getSettingsTarget gives OPENCLAW_STATE_DIR precedence over OPENCLAW_HOME",
     OPENCLAW_STATE_DIR: "/tmp/openclaw-state"
   });
 
-  assert.equal(target.path, path.join("/tmp/openclaw-state", "openclaw.json"));
+  assert.equal(target, path.join("/tmp/openclaw-state", "openclaw.json"));
 });
 
 test("getSettingsTarget ignores empty override values and falls back to the next OpenClaw path source", () => {
@@ -910,7 +903,7 @@ test("getSettingsTarget ignores empty override values and falls back to the next
       OPENCLAW_CONFIG_PATH: "",
       OPENCLAW_HOME: "/tmp/openclaw-home",
       OPENCLAW_STATE_DIR: "/tmp/openclaw-state"
-    }).path,
+    }),
     path.join("/tmp/openclaw-state", "openclaw.json")
   );
 
@@ -919,7 +912,7 @@ test("getSettingsTarget ignores empty override values and falls back to the next
       OPENCLAW_CONFIG_PATH: "",
       OPENCLAW_HOME: "/tmp/openclaw-home",
       OPENCLAW_STATE_DIR: ""
-    }).path,
+    }),
     path.join("/tmp/openclaw-home", ".openclaw", "openclaw.json")
   );
 });

@@ -33,8 +33,8 @@ test("loadSettings accepts JSON5 comments and trailing commas", async () => {
 
   const loaded = await loadSettings(filePath);
 
-  assert.equal(loaded.exists, true);
-  if (!loaded.exists) {
+  assert.equal(loaded.kind, "loaded");
+  if (loaded.kind !== "loaded") {
     assert.fail("Expected loadSettings to return parsed settings");
   }
   assert.deepEqual(loaded.settings, {
@@ -167,8 +167,8 @@ test("loadSettings accepts configs that omit optional managed objects", async ()
 
   const loaded = await loadSettings(filePath);
 
-  assert.equal(loaded.exists, true);
-  if (!loaded.exists) {
+  assert.equal(loaded.kind, "loaded");
+  if (loaded.kind !== "loaded") {
     assert.fail("Expected loadSettings to return parsed settings");
   }
   assert.deepEqual(loaded.settings, {
@@ -190,6 +190,6 @@ test("loadSettings returns exists=false when the config file is missing", async 
   const loaded = await loadSettings(filePath);
 
   assert.deepEqual(loaded, {
-    exists: false
+    kind: "missing"
   });
 });

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -7,10 +6,11 @@ import type { OpenClawConfig } from "../types/settings.js";
 import { DEFAULT_OWNER_ONLY_MODE } from "./file-permissions.js";
 import {
   formatOpenClawCommandOutput,
-  normalizeOpenClawCommandResult,
+  runOpenClawCommand,
   throwIfOpenClawCommandErrored,
   type OpenClawCommandResult
 } from "./openclaw-command.js";
+import { asPlainObject, type PlainObject } from "./object-utils.js";
 
 interface OpenClawValidationIssue {
   message?: string;
@@ -60,7 +60,11 @@ export function validateOpenClawConfig(
   const report = parseValidationReport(result.stdout);
 
   if (report?.valid === true && result.status === 0) {
-    return;
+    if (validatedRequestedPath(report, filePath)) {
+      return;
+    }
+
+    throw new Error(formatUnexpectedValidationPathMessage(filePath, report, result));
   }
 
   if (report?.valid === false) {
@@ -71,29 +75,27 @@ export function validateOpenClawConfig(
 }
 
 function runValidationCommand(command: string, args: string[], configPath: string): ValidationCommandResult {
-  return normalizeOpenClawCommandResult(spawnSync(command, args, {
-    encoding: "utf8",
+  return runOpenClawCommand(command, args, {
     env: {
       ...process.env,
       OPENCLAW_CONFIG_PATH: configPath
     },
     stdio: "pipe"
-  }));
+  });
 }
 
 function parseValidationReport(stdout: string): OpenClawValidationReport | undefined {
-  const trimmed = stdout.trim();
+  const parsed = parseJsonObject(stdout);
 
-  if (trimmed.length === 0) {
+  if (!parsed) {
     return undefined;
   }
 
-  try {
-    const parsed = JSON.parse(trimmed) as OpenClawValidationReport;
-    return typeof parsed === "object" && parsed !== null ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
+  return {
+    issues: parseValidationIssues(parsed.issues),
+    path: typeof parsed.path === "string" ? parsed.path : undefined,
+    valid: typeof parsed.valid === "boolean" ? parsed.valid : undefined
+  };
 }
 
 function formatInvalidConfigMessage(filePath: string, issues: readonly OpenClawValidationIssue[] | undefined): string {
@@ -125,4 +127,64 @@ function formatValidationCommandFailure(filePath: string, result: ValidationComm
     `Unable to validate the OpenClaw config at ${filePath} with "openclaw config validate --json". ` +
     `Update OpenClaw and rerun this installer.${outputSuffix}`
   );
+}
+
+function validatedRequestedPath(report: OpenClawValidationReport, filePath: string): boolean {
+  const reportedPath = typeof report.path === "string" ? report.path.trim() : "";
+
+  return reportedPath.length > 0 && path.resolve(reportedPath) === path.resolve(filePath);
+}
+
+function formatUnexpectedValidationPathMessage(
+  filePath: string,
+  report: OpenClawValidationReport,
+  result: ValidationCommandResult
+): string {
+  const reportedPath = typeof report.path === "string" && report.path.trim().length > 0
+    ? `"${report.path.trim()}"`
+    : "no validated path";
+  const output = formatOpenClawCommandOutput(result);
+  const outputSuffix = output.length > 0 ? `\n\nOpenClaw output:\n${output}` : "";
+
+  return (
+    `OpenClaw reported a successful validation result for ${filePath}, but confirmed ${reportedPath} instead. ` +
+    `Update OpenClaw and rerun this installer.${outputSuffix}`
+  );
+}
+
+function parseValidationIssues(value: unknown): OpenClawValidationIssue[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  return value
+    .map(parseValidationIssue)
+    .filter((issue): issue is OpenClawValidationIssue => issue !== undefined);
+}
+
+function parseValidationIssue(value: unknown): OpenClawValidationIssue | undefined {
+  const issue = asPlainObject(value);
+
+  if (!issue) {
+    return undefined;
+  }
+
+  return {
+    message: typeof issue.message === "string" ? issue.message : undefined,
+    path: typeof issue.path === "string" ? issue.path : undefined
+  };
+}
+
+function parseJsonObject(stdout: string): PlainObject | undefined {
+  const trimmed = stdout.trim();
+
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  try {
+    return asPlainObject(JSON.parse(trimmed));
+  } catch {
+    return undefined;
+  }
 }

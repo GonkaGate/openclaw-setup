@@ -6,12 +6,7 @@ import {
 } from "../constants/models.js";
 import type { SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import {
-  getDefaultModelSettings,
-  getManagedOpenAIProvider,
-  getModelAllowlist,
-  MANAGED_SETTINGS_PATHS
-} from "./managed-settings-access.js";
+import { getManagedSettingsView, MANAGED_SETTINGS_PATHS } from "./managed-settings-access.js";
 import { formatUnixMode, hasOwnerOnlyPermissions } from "./file-permissions.js";
 import { asPlainObject, type PlainObject } from "./object-utils.js";
 import { validateApiKey } from "./validate-api-key.js";
@@ -22,12 +17,13 @@ export interface VerifySettingsResult {
 }
 
 export async function verifySettings(filePath: string, settings: OpenClawConfig): Promise<VerifySettingsResult> {
-  const provider = requireManagedOpenAIProvider(settings, filePath);
+  const managed = getManagedSettingsView(settings);
+  const provider = requireManagedOpenAIProvider(managed.openaiProvider, filePath);
   const baseUrl = requireNonEmptyString(provider.baseUrl, MANAGED_SETTINGS_PATHS.openaiBaseUrl, filePath);
   const api = requireNonEmptyString(provider.api, MANAGED_SETTINGS_PATHS.openaiApi, filePath);
-  const apiKey = requireNonEmptyString(provider.apiKey, MANAGED_SETTINGS_PATHS.openaiApiKey, filePath);
+  requireManagedApiKey(provider.apiKey, filePath);
   requireArray(provider.models, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
-  const primaryModelRef = getPrimaryModelRef(settings, filePath);
+  const primaryModelRef = getPrimaryModelRef(managed.defaultModel, filePath);
 
   if (baseUrl !== GONKAGATE_OPENAI_BASE_URL) {
     throw new Error(
@@ -39,13 +35,6 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
     throw new Error(`Expected "${MANAGED_SETTINGS_PATHS.openaiApi}" in ${filePath} to be "${GONKAGATE_OPENAI_API}", found "${api}".`);
   }
 
-  try {
-    validateApiKey(apiKey);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid "${MANAGED_SETTINGS_PATHS.openaiApiKey}" in ${filePath}: ${message}`);
-  }
-
   const selectedModelState = getManagedModelSelectionByPrimaryRef(primaryModelRef);
 
   if (!selectedModelState) {
@@ -54,7 +43,7 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
     );
   }
 
-  verifyModelAllowlistWhenPresent(getModelAllowlist(settings), filePath, selectedModelState.selectedModel, selectedModelState.primaryModelRef);
+  verifyModelAllowlistWhenPresent(managed.allowlist, filePath, selectedModelState.selectedModel, selectedModelState.primaryModelRef);
 
   const configMode = (await stat(filePath)).mode & 0o777;
 
@@ -68,9 +57,7 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
   };
 }
 
-function requireManagedOpenAIProvider(settings: OpenClawConfig, filePath: string): PlainObject {
-  const openaiProvider = getManagedOpenAIProvider(settings);
-
+function requireManagedOpenAIProvider(openaiProvider: PlainObject | undefined, filePath: string): PlainObject {
   if (!openaiProvider) {
     throw new Error(
       `Expected "${MANAGED_SETTINGS_PATHS.openaiProvider}" in ${filePath} to exist. Run "npx @gonkagate/openclaw" to apply GonkaGate settings.`
@@ -80,10 +67,25 @@ function requireManagedOpenAIProvider(settings: OpenClawConfig, filePath: string
   return openaiProvider;
 }
 
-function getPrimaryModelRef(settings: OpenClawConfig, filePath: string): string {
-  const defaultModel = getDefaultModelSettings(settings);
-
+function getPrimaryModelRef(defaultModel: PlainObject | undefined, filePath: string): string {
   return requireNonEmptyString(defaultModel?.primary, MANAGED_SETTINGS_PATHS.primaryModel, filePath);
+}
+
+function requireManagedApiKey(value: unknown, filePath: string): string {
+  const apiKey = requireNonEmptyString(value, MANAGED_SETTINGS_PATHS.openaiApiKey, filePath);
+
+  try {
+    const normalizedApiKey = validateApiKey(apiKey);
+
+    if (normalizedApiKey !== apiKey) {
+      throw new Error("Expected the saved API key to be trimmed with no leading or trailing whitespace.");
+    }
+
+    return normalizedApiKey;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid "${MANAGED_SETTINGS_PATHS.openaiApiKey}" in ${filePath}: ${message}`);
+  }
 }
 
 function verifyModelAllowlistWhenPresent(

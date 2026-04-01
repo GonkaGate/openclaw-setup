@@ -1,5 +1,8 @@
-import { spawnSync } from "node:child_process";
-import { normalizeOpenClawCommandResult, throwIfOpenClawCommandErrored, type OpenClawCommandResult } from "./openclaw-command.js";
+import {
+  runOpenClawCommand,
+  throwIfOpenClawCommandErrored,
+  type OpenClawCommandResult
+} from "./openclaw-command.js";
 
 export type CommandResult = OpenClawCommandResult;
 
@@ -25,16 +28,10 @@ export function initializeOpenClawBaseConfig(runCommand: CommandRunner = runSetu
   }
 }
 
-function runVersionCheck(command: string, args: string[]): CommandResult {
-  return normalizeOpenClawCommandResult(spawnSync(command, args, {
-    encoding: "utf8",
-    stdio: "ignore"
-  }));
-}
+const runVersionCheck: CommandRunner = (command, args) => runOpenClawCommand(command, args, {
+  stdio: "ignore"
+});
 
-function runSetupCommand(command: string, args: string[]): CommandResult {
-  return normalizeOpenClawCommandResult(spawnSync(command, args, {
-    encoding: "utf8",
-    stdio: "inherit"
-  }));
-}
+const runSetupCommand: CommandRunner = (command, args) => runOpenClawCommand(command, args, {
+  stdio: "inherit"
+});

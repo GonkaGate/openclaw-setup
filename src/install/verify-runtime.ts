@@ -1,10 +1,16 @@
-import { spawnSync } from "node:child_process";
 import {
   formatOpenClawCommandOutput,
-  normalizeOpenClawCommandResult,
+  runOpenClawCommand,
   throwIfOpenClawCommandErrored,
   type OpenClawCommandResult
 } from "./openclaw-command.js";
+import { asPlainObject, type PlainObject } from "./object-utils.js";
+
+interface OpenClawGatewayStatusReport {
+  rpc?: {
+    ok?: boolean;
+  };
+}
 
 interface OpenClawHealthReport {
   ok?: boolean;
@@ -13,7 +19,7 @@ interface OpenClawHealthReport {
 const NEXT_GATEWAY_COMMAND = "openclaw gateway" as const;
 const VERIFY_COMMAND = "npx @gonkagate/openclaw verify";
 
-const RUNTIME_STATUS = {
+const RUNTIME_KIND = {
   healthy: "healthy",
   gatewayUnavailable: "gateway_unavailable",
   runtimeUnhealthy: "runtime_unhealthy",
@@ -21,23 +27,23 @@ const RUNTIME_STATUS = {
 } as const;
 
 interface HealthyRuntimeVerificationResult {
+  kind: typeof RUNTIME_KIND.healthy;
   resolvedPrimaryModelRef: string;
-  status: typeof RUNTIME_STATUS.healthy;
 }
 
 interface GatewayUnavailableInstallRuntimeResult {
+  kind: typeof RUNTIME_KIND.gatewayUnavailable;
   nextCommand: typeof NEXT_GATEWAY_COMMAND;
-  status: typeof RUNTIME_STATUS.gatewayUnavailable;
 }
 
 export type RuntimeVerificationFailureKind =
-  | typeof RUNTIME_STATUS.gatewayUnavailable
-  | typeof RUNTIME_STATUS.runtimeUnhealthy
-  | typeof RUNTIME_STATUS.modelResolutionFailed;
+  | typeof RUNTIME_KIND.gatewayUnavailable
+  | typeof RUNTIME_KIND.runtimeUnhealthy
+  | typeof RUNTIME_KIND.modelResolutionFailed;
 
 interface FailedRuntimeVerificationResult {
+  kind: RuntimeVerificationFailureKind;
   message: string;
-  status: RuntimeVerificationFailureKind;
 }
 
 export type RuntimeCommandResult = OpenClawCommandResult;
@@ -48,7 +54,7 @@ export type InstallRuntimeCheckResult = HealthyRuntimeVerificationResult | Gatew
 export function verifyOpenClawRuntime(
   filePath: string,
   expectedPrimaryModelRef: string,
-  runCommand: RuntimeCommandRunner = runRuntimeCommand
+  runCommand: RuntimeCommandRunner = runOpenClawCommand
 ): VerifyRuntimeResult {
   const gatewayFailure = verifyGatewayRpc(runCommand);
 
@@ -65,31 +71,36 @@ export function verifyOpenClawRuntime(
   return verifyResolvedPrimaryModel(filePath, expectedPrimaryModelRef, runCommand);
 }
 
-export function resolveInstallRuntime(result: VerifyRuntimeResult): InstallRuntimeCheckResult {
-  if (result.status === RUNTIME_STATUS.healthy) {
+export function verifyOpenClawRuntimeForInstall(
+  filePath: string,
+  expectedPrimaryModelRef: string,
+  runCommand: RuntimeCommandRunner = runOpenClawCommand
+): InstallRuntimeCheckResult {
+  const result = verifyOpenClawRuntime(filePath, expectedPrimaryModelRef, runCommand);
+
+  if (result.kind === RUNTIME_KIND.healthy) {
     return result;
   }
 
-  if (result.status === RUNTIME_STATUS.gatewayUnavailable) {
+  if (result.kind === RUNTIME_KIND.gatewayUnavailable) {
     return createGatewayUnavailableInstallResult();
   }
 
   throw new Error(result.message);
 }
 
-export function requireHealthyRuntime(result: VerifyRuntimeResult): HealthyRuntimeVerificationResult {
-  if (result.status !== RUNTIME_STATUS.healthy) {
+export function verifyOpenClawRuntimeForVerify(
+  filePath: string,
+  expectedPrimaryModelRef: string,
+  runCommand: RuntimeCommandRunner = runOpenClawCommand
+): HealthyRuntimeVerificationResult {
+  const result = verifyOpenClawRuntime(filePath, expectedPrimaryModelRef, runCommand);
+
+  if (result.kind !== RUNTIME_KIND.healthy) {
     throw new Error(result.message);
   }
 
   return result;
-}
-
-function runRuntimeCommand(command: string, args: string[]): RuntimeCommandResult {
-  return normalizeOpenClawCommandResult(spawnSync(command, args, {
-    encoding: "utf8",
-    stdio: "pipe"
-  }));
 }
 
 function getCommandFailure(
@@ -107,18 +118,15 @@ function getCommandFailure(
 }
 
 function parseHealthReport(stdout: string): OpenClawHealthReport | undefined {
-  const trimmed = stdout.trim();
+  const parsed = parseJsonObject(stdout);
 
-  if (trimmed.length === 0) {
+  if (!parsed) {
     return undefined;
   }
 
-  try {
-    const parsed = JSON.parse(trimmed) as OpenClawHealthReport;
-    return typeof parsed === "object" && parsed !== null ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
+  return typeof parsed.ok === "boolean"
+    ? { ok: parsed.ok }
+    : {};
 }
 
 function formatCommandFailure(baseMessage: string, result: RuntimeCommandResult): string {
@@ -131,11 +139,30 @@ function formatCommandFailure(baseMessage: string, result: RuntimeCommandResult)
 function verifyGatewayRpc(runCommand: RuntimeCommandRunner): FailedRuntimeVerificationResult | undefined {
   const gatewayStatusResult = runCommand("openclaw", ["gateway", "status", "--require-rpc", "--json"]);
 
-  return getCommandFailure(
+  const commandFailure = getCommandFailure(
     gatewayStatusResult,
-    RUNTIME_STATUS.gatewayUnavailable,
+    RUNTIME_KIND.gatewayUnavailable,
     'Unable to confirm that the local OpenClaw Gateway RPC is healthy through "openclaw gateway status --require-rpc --json". ' +
       `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`
+  );
+
+  if (commandFailure) {
+    return commandFailure;
+  }
+
+  const gatewayStatusReport = parseGatewayStatusReport(gatewayStatusResult.stdout);
+
+  if (gatewayStatusReport?.rpc?.ok === true) {
+    return undefined;
+  }
+
+  return createFailedRuntimeResult(
+    RUNTIME_KIND.gatewayUnavailable,
+    formatCommandFailure(
+      'OpenClaw did not report a healthy Gateway RPC through "openclaw gateway status --require-rpc --json". ' +
+        `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`,
+      gatewayStatusResult
+    )
   );
 }
 
@@ -143,7 +170,7 @@ function verifyHealthSnapshot(runCommand: RuntimeCommandRunner): FailedRuntimeVe
   const healthResult = runCommand("openclaw", ["health", "--json"]);
   const commandFailure = getCommandFailure(
     healthResult,
-    RUNTIME_STATUS.runtimeUnhealthy,
+    RUNTIME_KIND.runtimeUnhealthy,
     `Unable to confirm OpenClaw health through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`
   );
 
@@ -158,7 +185,7 @@ function verifyHealthSnapshot(runCommand: RuntimeCommandRunner): FailedRuntimeVe
   }
 
   return createFailedRuntimeResult(
-    RUNTIME_STATUS.runtimeUnhealthy,
+    RUNTIME_KIND.runtimeUnhealthy,
     formatCommandFailure(
       `OpenClaw reported an unhealthy runtime through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
       healthResult
@@ -174,7 +201,7 @@ function verifyResolvedPrimaryModel(
   const modelsStatusResult = runCommand("openclaw", ["models", "status", "--plain"]);
   const commandFailure = getCommandFailure(
     modelsStatusResult,
-    RUNTIME_STATUS.modelResolutionFailed,
+    RUNTIME_KIND.modelResolutionFailed,
     `Unable to confirm the resolved primary model through "openclaw models status --plain". Rerun "${VERIFY_COMMAND}" after OpenClaw finishes loading the config.`
   );
 
@@ -186,14 +213,14 @@ function verifyResolvedPrimaryModel(
 
   if (resolvedPrimaryModelRef.length === 0) {
     return createFailedRuntimeResult(
-      RUNTIME_STATUS.modelResolutionFailed,
+      RUNTIME_KIND.modelResolutionFailed,
       formatCommandFailure('OpenClaw returned an empty response for "openclaw models status --plain".', modelsStatusResult)
     );
   }
 
   if (resolvedPrimaryModelRef !== expectedPrimaryModelRef) {
     return createFailedRuntimeResult(
-      RUNTIME_STATUS.modelResolutionFailed,
+      RUNTIME_KIND.modelResolutionFailed,
       `OpenClaw resolved primary model "${resolvedPrimaryModelRef}" through "openclaw models status --plain", ` +
         `but ${filePath} expects "${expectedPrimaryModelRef}".`
     );
@@ -204,24 +231,58 @@ function verifyResolvedPrimaryModel(
 
 function createHealthyRuntimeResult(resolvedPrimaryModelRef: string): HealthyRuntimeVerificationResult {
   return {
-    resolvedPrimaryModelRef,
-    status: RUNTIME_STATUS.healthy
+    kind: RUNTIME_KIND.healthy,
+    resolvedPrimaryModelRef
   };
 }
 
 function createGatewayUnavailableInstallResult(): GatewayUnavailableInstallRuntimeResult {
   return {
-    nextCommand: NEXT_GATEWAY_COMMAND,
-    status: RUNTIME_STATUS.gatewayUnavailable
+    kind: RUNTIME_KIND.gatewayUnavailable,
+    nextCommand: NEXT_GATEWAY_COMMAND
   };
 }
 
 function createFailedRuntimeResult(
-  status: RuntimeVerificationFailureKind,
+  kind: RuntimeVerificationFailureKind,
   message: string
 ): FailedRuntimeVerificationResult {
   return {
-    message,
-    status
+    kind,
+    message
   };
+}
+
+function parseGatewayStatusReport(stdout: string): OpenClawGatewayStatusReport | undefined {
+  const parsed = parseJsonObject(stdout);
+
+  if (!parsed) {
+    return undefined;
+  }
+
+  const rpc = asPlainObject(parsed.rpc);
+
+  if (!rpc) {
+    return {};
+  }
+
+  return {
+    rpc: {
+      ok: typeof rpc.ok === "boolean" ? rpc.ok : undefined
+    }
+  };
+}
+
+function parseJsonObject(stdout: string): PlainObject | undefined {
+  const trimmed = stdout.trim();
+
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  try {
+    return asPlainObject(JSON.parse(trimmed));
+  } catch {
+    return undefined;
+  }
 }

@@ -2,16 +2,8 @@ import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL, OPENCLAW_PROVIDER_ID }
 import { toManagedModelSelection } from "../constants/models.js";
 import type { SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import {
-  getAgentDefaultsSettings,
-  getAgentsSettings,
-  getDefaultModelSettings,
-  getManagedOpenAIProvider,
-  getModelAllowlist,
-  getModelsProvidersSettings,
-  getModelsSettings
-} from "./managed-settings-access.js";
-import { asPlainObject, copyArray, toPlainObject, type PlainObject } from "./object-utils.js";
+import { getManagedSettingsView } from "./managed-settings-access.js";
+import { asPlainObject, copyPlainObject, type PlainObject } from "./object-utils.js";
 
 interface ManagedSettingsForUpdate {
   agents: PlainObject;
@@ -36,7 +28,7 @@ export function mergeSettingsWithGonkaGate(
     ? {
         ...managedSettings.allowlist,
         [selectedModelState.primaryModelRef]: {
-          ...toPlainObject(existingAllowlistEntry),
+          ...copyPlainObject(existingAllowlistEntry),
           ...selectedModelState.allowlistEntry
         }
       }
@@ -72,23 +64,18 @@ export function mergeSettingsWithGonkaGate(
 }
 
 function normalizeManagedSettingsForUpdate(settings: OpenClawConfig): ManagedSettingsForUpdate {
-  const models = toPlainObject(getModelsSettings(settings));
-  const providers = toPlainObject(getModelsProvidersSettings(settings));
-  const openaiProvider = toPlainObject(getManagedOpenAIProvider(settings));
-  const agents = toPlainObject(getAgentsSettings(settings));
-  const defaults = toPlainObject(getAgentDefaultsSettings(settings));
-  const defaultModel = toPlainObject(getDefaultModelSettings(settings));
-  const allowlist = getModelAllowlist(settings);
-  const openaiModels = copyArray(Array.isArray(openaiProvider.models) ? openaiProvider.models : undefined);
+  const managed = getManagedSettingsView(settings);
+  const allowlist = managed.allowlist;
+  const openaiModels = Array.isArray(managed.openaiModelsValue) ? [...managed.openaiModelsValue] : [];
 
   return {
-    agents,
-    defaults,
-    defaultModel,
-    models,
+    agents: copyPlainObject(managed.agents),
+    defaults: copyPlainObject(managed.defaults),
+    defaultModel: copyPlainObject(managed.defaultModel),
+    models: copyPlainObject(managed.models),
     openaiModels,
-    openaiProvider,
-    providers,
+    openaiProvider: copyPlainObject(managed.openaiProvider),
+    providers: copyPlainObject(managed.providers),
     allowlist: allowlist ? { ...allowlist } : undefined
   };
 }

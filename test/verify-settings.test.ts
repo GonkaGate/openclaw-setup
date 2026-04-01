@@ -127,6 +127,35 @@ test("verifySettings rejects malformed GonkaGate API keys", async () => {
   );
 });
 
+test("verifySettings rejects saved API keys with leading or trailing whitespace", async () => {
+  const filePath = await createTempFilePath("openclaw-verify-api-key-whitespace-");
+  await writeFile(filePath, "{}", "utf8");
+  await chmod(filePath, 0o600);
+
+  await assert.rejects(
+    verifySettings(filePath, {
+      models: {
+        providers: {
+          openai: {
+            baseUrl: "https://api.gonkagate.com/v1",
+            api: "openai-completions",
+            apiKey: " gp-test-key ",
+            models: []
+          }
+        }
+      },
+      agents: {
+        defaults: {
+          model: {
+            primary: toPrimaryModelRef(DEFAULT_MODEL)
+          }
+        }
+      }
+    }),
+    /leading or trailing whitespace/
+  );
+});
+
 test("verifySettings rejects unsupported primary model refs", async () => {
   const filePath = await createTempFilePath("openclaw-verify-model-ref-");
   await writeFile(filePath, "{}", "utf8");
@@ -246,6 +275,35 @@ test("verifySettings rejects configs whose permissions are not owner-only", asyn
       }
     }),
     new RegExp(formatUnixMode(0o644))
+  );
+});
+
+test("verifySettings rejects configs that are not owner-read-write only", async () => {
+  const filePath = await createTempFilePath("openclaw-verify-readonly-mode-");
+  await writeFile(filePath, "{}", "utf8");
+  await chmod(filePath, 0o400);
+
+  await assert.rejects(
+    verifySettings(filePath, {
+      models: {
+        providers: {
+          openai: {
+            baseUrl: "https://api.gonkagate.com/v1",
+            api: "openai-completions",
+            apiKey: "gp-test-key",
+            models: []
+          }
+        }
+      },
+      agents: {
+        defaults: {
+          model: {
+            primary: toPrimaryModelRef(DEFAULT_MODEL)
+          }
+        }
+      }
+    }),
+    new RegExp(formatUnixMode(0o400))
   );
 });
 

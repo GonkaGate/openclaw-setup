@@ -1,10 +1,15 @@
-import type { SpawnSyncReturns } from "node:child_process";
+import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
 
 export interface OpenClawCommandResult {
   error?: NodeJS.ErrnoException;
   status: number | null;
   stderr: string;
   stdout: string;
+}
+
+export interface RunOpenClawCommandOptions {
+  env?: NodeJS.ProcessEnv;
+  stdio?: SpawnSyncOptionsWithStringEncoding["stdio"];
 }
 
 const OPENCLAW_NOT_FOUND_MESSAGE =
@@ -17,6 +22,18 @@ export function normalizeOpenClawCommandResult(result: SpawnSyncReturns<string>)
     stderr: result.stderr ?? "",
     stdout: result.stdout ?? ""
   };
+}
+
+export function runOpenClawCommand(
+  command: string,
+  args: string[],
+  options: RunOpenClawCommandOptions = {}
+): OpenClawCommandResult {
+  return normalizeOpenClawCommandResult(spawnSync(command, args, {
+    encoding: "utf8",
+    ...(options.env ? { env: options.env } : {}),
+    stdio: options.stdio ?? "pipe"
+  }));
 }
 
 export function throwIfOpenClawCommandErrored(result: Pick<OpenClawCommandResult, "error">): void {

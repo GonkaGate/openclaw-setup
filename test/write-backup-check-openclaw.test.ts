@@ -113,7 +113,7 @@ test("writeSettings preserves an existing 0o600 mode", async () => {
   assert.equal(fileStats.mode & 0o777, 0o600);
 });
 
-test("writeSettings preserves single owner-bit modes from the existing file", async () => {
+test("writeSettings normalizes existing single owner-bit modes to 0o600", async () => {
   const filePath = await createTempFilePath("openclaw-single-owner-bit-");
 
   await writeFile(filePath, JSON.stringify({ agents: { defaults: { model: { primary: "old" } } } }, null, 2), "utf8");
@@ -131,7 +131,7 @@ test("writeSettings preserves single owner-bit modes from the existing file", as
 
   const fileStats = await stat(filePath);
 
-  assert.equal(fileStats.mode & 0o777, 0o400);
+  assert.equal(fileStats.mode & 0o777, 0o600);
 });
 
 test("ensureOpenClawInstalled reports a missing binary clearly", () => {

@@ -12,6 +12,30 @@ test("validateOpenClawConfig accepts a successful structured validation report",
   }));
 });
 
+test("validateOpenClawConfig rejects successful reports that omit the validated path", () => {
+  assert.throws(
+    () =>
+      validateOpenClawConfig("/tmp/openclaw.json", () => ({
+        status: 0,
+        stderr: "",
+        stdout: '{"valid":true}'
+      })),
+    /confirmed no validated path instead/
+  );
+});
+
+test("validateOpenClawConfig rejects successful reports for another config path", () => {
+  assert.throws(
+    () =>
+      validateOpenClawConfig("/tmp/openclaw.json", () => ({
+        status: 0,
+        stderr: "",
+        stdout: '{"valid":true,"path":"/tmp/other.json"}'
+      })),
+    /confirmed "\/tmp\/other\.json" instead/
+  );
+});
+
 test("validateOpenClawConfig surfaces structured schema issues from OpenClaw", () => {
   assert.throws(
     () =>

@@ -1,36 +1,35 @@
-import { access, constants, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import JSON5 from "json5";
-import { OPENCLAW_PROVIDER_ID } from "../constants/gateway.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import {
-  getAgentDefaultsSettings,
-  getAgentsSettings,
-  getModelsSettings,
-  MANAGED_SETTINGS_PATHS
-} from "./managed-settings-access.js";
+import { getManagedSettingsView, MANAGED_SETTINGS_PATHS } from "./managed-settings-access.js";
 import { asPlainObject, isPlainObject } from "./object-utils.js";
 
-export interface ExistingSettingsResult {
-  exists: true;
+export interface LoadedSettingsResult {
+  kind: "loaded";
   settings: OpenClawConfig;
 }
 
 export interface MissingSettingsResult {
-  exists: false;
+  kind: "missing";
 }
 
-export type LoadSettingsResult = ExistingSettingsResult | MissingSettingsResult;
+export type LoadSettingsResult = LoadedSettingsResult | MissingSettingsResult;
 
 export async function loadSettings(filePath: string): Promise<LoadSettingsResult> {
+  let raw: string;
+
   try {
-    await access(filePath, constants.F_OK);
-  } catch {
-    return {
-      exists: false
-    };
+    raw = await readFile(filePath, "utf8");
+  } catch (error) {
+    if (isNodeErrorWithCode(error, "ENOENT")) {
+      return {
+        kind: "missing"
+      };
+    }
+
+    throw error;
   }
 
-  const raw = await readFile(filePath, "utf8");
   let parsed: unknown;
 
   try {
@@ -46,28 +45,30 @@ export async function loadSettings(filePath: string): Promise<LoadSettingsResult
   validateManagedSurface(parsed, filePath);
 
   return {
-    exists: true,
+    kind: "loaded",
     settings: parsed
   };
 }
 
+export function requireLoadedSettings(result: LoadSettingsResult, missingMessage: string): LoadedSettingsResult {
+  if (result.kind === "missing") {
+    throw new Error(missingMessage);
+  }
+
+  return result;
+}
+
 function validateManagedSurface(settings: OpenClawConfig, filePath: string): void {
-  assertPlainObjectWhenPresent(settings.models, MANAGED_SETTINGS_PATHS.models, filePath);
-  assertPlainObjectWhenPresent(settings.agents, MANAGED_SETTINGS_PATHS.agents, filePath);
-  const models = getModelsSettings(settings);
-  const agents = getAgentsSettings(settings);
+  const managed = getManagedSettingsView(settings);
 
-  assertPlainObjectWhenPresent(models?.providers, MANAGED_SETTINGS_PATHS.providers, filePath);
-  assertPlainObjectWhenPresent(agents?.defaults, MANAGED_SETTINGS_PATHS.defaults, filePath);
-  const providers = asPlainObject(models?.providers);
-  const defaults = getAgentDefaultsSettings(settings);
-
-  assertPlainObjectWhenPresent(providers?.[OPENCLAW_PROVIDER_ID], MANAGED_SETTINGS_PATHS.openaiProvider, filePath);
-  assertPlainObjectWhenPresent(defaults?.model, MANAGED_SETTINGS_PATHS.defaultModel, filePath);
-  assertPlainObjectWhenPresent(defaults?.models, MANAGED_SETTINGS_PATHS.allowlist, filePath);
-  const openaiProvider = asPlainObject(providers?.[OPENCLAW_PROVIDER_ID]);
-
-  assertArrayWhenPresent(openaiProvider?.models, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
+  assertPlainObjectWhenPresent(managed.modelsValue, MANAGED_SETTINGS_PATHS.models, filePath);
+  assertPlainObjectWhenPresent(managed.agentsValue, MANAGED_SETTINGS_PATHS.agents, filePath);
+  assertPlainObjectWhenPresent(managed.providersValue, MANAGED_SETTINGS_PATHS.providers, filePath);
+  assertPlainObjectWhenPresent(managed.defaultsValue, MANAGED_SETTINGS_PATHS.defaults, filePath);
+  assertPlainObjectWhenPresent(managed.openaiProviderValue, MANAGED_SETTINGS_PATHS.openaiProvider, filePath);
+  assertPlainObjectWhenPresent(managed.defaultModelValue, MANAGED_SETTINGS_PATHS.defaultModel, filePath);
+  assertPlainObjectWhenPresent(managed.allowlistValue, MANAGED_SETTINGS_PATHS.allowlist, filePath);
+  assertArrayWhenPresent(managed.openaiModelsValue, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
 }
 
 function assertPlainObjectWhenPresent(value: unknown, fieldPath: string, filePath: string): void {
@@ -80,4 +81,8 @@ function assertArrayWhenPresent(value: unknown, fieldPath: string, filePath: str
   if (value !== undefined && !Array.isArray(value)) {
     throw new Error(`Expected "${fieldPath}" in ${filePath} to be a JSON5 array when present.`);
   }
+}
+
+function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
 }

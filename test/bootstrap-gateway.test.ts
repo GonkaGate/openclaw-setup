@@ -11,7 +11,7 @@ test("ensureFreshInstallLocalGateway adds gateway.mode=local when it is missing"
     }
   });
 
-  assert.equal(result.configuredLocalMode, true);
+  assert.equal(result.kind, "added_local_mode");
   assert.deepEqual(result.settings.gateway, {
     auth: {
       mode: "token"
@@ -29,6 +29,6 @@ test("ensureFreshInstallLocalGateway preserves an existing gateway.mode", () => 
   };
   const result = ensureFreshInstallLocalGateway(input);
 
-  assert.equal(result.configuredLocalMode, false);
+  assert.equal(result.kind, "preserved_existing_mode");
   assert.equal(result.settings, input);
 });
