@@ -12,14 +12,31 @@ const silentOutput = {
 
 function createGatewayUnavailableInstallResult(): InstallOutcome {
   return {
+    backupPath: "/tmp/backup.json",
     configPreparation: {
-      addedLocalGatewayMode: false,
+      addedLocalGatewayMode: true,
       settings: {},
-      source: "existing"
+      source: "fresh"
+    },
+    display: {
+      sections: [
+        {
+          heading: "Install complete.",
+          lines: [
+            "Config: /tmp/openclaw.json",
+            "Model: Display-owned model",
+            "Base setup: initialized automatically with OpenClaw defaults"
+          ]
+        },
+        {
+          heading: "Next step:",
+          lines: ["openclaw gateway"]
+        }
+      ]
     },
     runtime: {
-      kind: "gateway_unavailable",
-      nextCommand: "openclaw gateway"
+      kind: "healthy",
+      resolvedPrimaryModelRef: "openai/not-used-by-cli"
     },
     selectedModel: DEFAULT_MODEL,
     targetPath: "/tmp/openclaw.json"
@@ -82,6 +99,14 @@ test("run delegates verify requests to the verify use case with the resolved tar
         capturedTargetPath = targetPath;
         return {
           configMode: 0o600,
+          display: {
+            sections: [
+              {
+                heading: "Verification complete.",
+                lines: ["Display-owned verification output"]
+              }
+            ]
+          },
           resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
           selectedModel: DEFAULT_MODEL,
           targetPath
@@ -105,6 +130,7 @@ test("run prints the exact next command when install succeeds with a gateway-una
   assert.equal(logs.some((line) => line.includes("Next step:")), true);
   assert.equal(logs.some((line) => line.includes("openclaw gateway")), true);
   assert.equal(logs.some((line) => line.includes("Gateway RPC: reachable")), false);
+  assert.equal(logs.some((line) => line.includes("Display-owned model")), true);
 });
 
 test("run prints verification success details from the verify use case outcome", async () => {
@@ -113,8 +139,22 @@ test("run prints verification success details from the verify use case outcome",
       getSettingsTarget: () => "/tmp/openclaw.json",
       runVerifyUseCase: async ({ targetPath }) => ({
         configMode: 0o600,
-        resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
-        selectedModel: DEFAULT_MODEL,
+        display: {
+          sections: [
+            {
+              heading: "Verification complete.",
+              lines: [
+                "Permissions: 0o600",
+                "Resolved model: display-owned-model"
+              ]
+            }
+          ]
+        },
+        resolvedPrimaryModelRef: "not-used-by-cli",
+        selectedModel: {
+          ...DEFAULT_MODEL,
+          displayName: "Not used by CLI"
+        },
         targetPath
       })
     });
@@ -122,7 +162,8 @@ test("run prints verification success details from the verify use case outcome",
 
   assert.equal(logs.some((line) => line.includes("Verification complete.")), true);
   assert.equal(logs.some((line) => line.includes("Permissions: 0o600")), true);
-  assert.equal(logs.some((line) => line.includes(toPrimaryModelRef(DEFAULT_MODEL))), true);
+  assert.equal(logs.some((line) => line.includes("display-owned-model")), true);
+  assert.equal(logs.some((line) => line.includes(toPrimaryModelRef(DEFAULT_MODEL))), false);
 });
 
 test("run stops before any use case when resolving the target path fails", async () => {
@@ -143,6 +184,9 @@ test("run stops before any use case when resolving the target path fails", async
         verifyCalls += 1;
         return {
           configMode: 0o600,
+          display: {
+            sections: []
+          },
           resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
           selectedModel: DEFAULT_MODEL,
           targetPath: "/tmp/openclaw.json"

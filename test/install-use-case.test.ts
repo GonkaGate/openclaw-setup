@@ -115,6 +115,20 @@ function createInstallHarness(
       state.configValidationPaths.push(filePath);
       recordStep(state, "validateOpenClawConfig");
     },
+    validateCandidateConfig: async (filePath) => {
+      state.prewriteValidationCalls += 1;
+      state.prewriteValidationPaths.push(filePath);
+      recordStep(state, "validateSettingsBeforeWrite");
+    },
+    verifyRuntimeForInstall: (filePath, expectedPrimaryModelRef) => {
+      state.runtimeVerifyCalls += 1;
+      state.runtimeVerifyInputs.push({
+        expectedPrimaryModelRef,
+        filePath
+      });
+      recordStep(state, "verifyRuntime");
+      return createHealthyRuntimeResult();
+    },
     ...overrides.openClaw
   };
 
@@ -154,20 +168,6 @@ function createInstallHarness(
       state.validateCalls += 1;
       recordStep(state, "validateApiKey");
       return apiKey;
-    },
-    validateSettingsBeforeWrite: async (filePath) => {
-      state.prewriteValidationCalls += 1;
-      state.prewriteValidationPaths.push(filePath);
-      recordStep(state, "validateSettingsBeforeWrite");
-    },
-    verifyOpenClawRuntimeForInstall: (filePath, expectedPrimaryModelRef) => {
-      state.runtimeVerifyCalls += 1;
-      state.runtimeVerifyInputs.push({
-        expectedPrimaryModelRef,
-        filePath
-      });
-      recordStep(state, "verifyRuntime");
-      return createHealthyRuntimeResult();
     },
     writeSettings: async (filePath, settings) => {
       state.writeCalls += 1;
@@ -231,13 +231,13 @@ test("runInstallUseCase initializes missing OpenClaw config automatically and sk
         initializeBaseConfig: () => {
           setupCalls += 1;
         },
-        validateConfig: () => {}
+        validateCandidateConfig: async () => {},
+        validateConfig: () => {},
+        verifyRuntimeForInstall: () => createGatewayUnavailableInstallResult()
       },
       promptForApiKey: async () => "gp-test-key",
       promptForModel: async () => DEFAULT_MODEL,
       validateApiKey: (apiKey) => apiKey,
-      validateSettingsBeforeWrite: async () => {},
-      verifyOpenClawRuntimeForInstall: () => createGatewayUnavailableInstallResult(),
       writeSettings: async (_filePath, settings) => {
         writtenSettings = settings as Record<string, unknown>;
       }
@@ -249,6 +249,8 @@ test("runInstallUseCase initializes missing OpenClaw config automatically and sk
   assert.equal(backupCalls, 0);
   assert.equal(result.configPreparation.source, "fresh");
   assert.equal(result.configPreparation.addedLocalGatewayMode, true);
+  assert.equal(result.display.sections[0]?.heading, "Install complete.");
+  assert.equal(result.display.sections[1]?.heading, "Next step:");
   assert.deepEqual(writtenSettings, {
     agents: {
       defaults: {
@@ -313,13 +315,13 @@ test("runInstallUseCase preserves an existing gateway.mode from fresh OpenClaw s
       openClaw: {
         ensureInstalled: () => {},
         initializeBaseConfig: () => {},
-        validateConfig: () => {}
+        validateCandidateConfig: async () => {},
+        validateConfig: () => {},
+        verifyRuntimeForInstall: () => createGatewayUnavailableInstallResult()
       },
       promptForApiKey: async () => "gp-test-key",
       promptForModel: async () => DEFAULT_MODEL,
       validateApiKey: (apiKey) => apiKey,
-      validateSettingsBeforeWrite: async () => {},
-      verifyOpenClawRuntimeForInstall: () => createGatewayUnavailableInstallResult(),
       writeSettings: async (_filePath, settings) => {
         writtenSettings = settings as Record<string, unknown>;
       }
@@ -351,7 +353,9 @@ test("runInstallUseCase does not rewrite gateway.mode for existing configs", asy
           }
         };
       },
-      verifyOpenClawRuntimeForInstall: () => createGatewayUnavailableInstallResult()
+    },
+    openClaw: {
+      verifyRuntimeForInstall: () => createGatewayUnavailableInstallResult()
     }
   });
 
@@ -383,8 +387,8 @@ test("runInstallUseCase creates a backup once before writing when updating an ex
 
 test("runInstallUseCase succeeds after writing a config when the Gateway is not running yet", async () => {
   const { dependencies, state } = createInstallHarness({
-    dependencies: {
-      verifyOpenClawRuntimeForInstall: () => createGatewayUnavailableInstallResult()
+    openClaw: {
+      verifyRuntimeForInstall: () => createGatewayUnavailableInstallResult()
     }
   });
 
@@ -396,13 +400,14 @@ test("runInstallUseCase succeeds after writing a config when the Gateway is not 
     kind: "gateway_unavailable",
     nextCommand: "openclaw gateway"
   });
+  assert.equal(result.display.sections[1]?.heading, "Next step:");
   assert.equal(state.writeCalls, 1);
 });
 
 test("runInstallUseCase fails after writing when the Gateway is reachable but unhealthy", async () => {
   const { dependencies, state } = createInstallHarness({
-    dependencies: {
-      verifyOpenClawRuntimeForInstall: () => {
+    openClaw: {
+      verifyRuntimeForInstall: () => {
         throw new Error("health failed");
       }
     }
@@ -489,24 +494,24 @@ test("runInstallUseCase surfaces a clear error when OpenClaw setup does not crea
             kind: "missing"
           };
         },
-        openClaw: {
-          ensureInstalled: () => {},
-          initializeBaseConfig: () => {
-            setupCalls += 1;
-          },
-          validateConfig: () => {}
+      openClaw: {
+        ensureInstalled: () => {},
+        initializeBaseConfig: () => {
+          setupCalls += 1;
         },
-        promptForApiKey: async () => {
-          promptCalls += 1;
-          return "gp-test-key";
-        },
-        promptForModel: async () => DEFAULT_MODEL,
-        validateApiKey: (apiKey) => apiKey,
-        validateSettingsBeforeWrite: async () => {},
-        verifyOpenClawRuntimeForInstall: () => createHealthyRuntimeResult(),
-        writeSettings: async () => {}
-      }
-    ),
+        validateCandidateConfig: async () => {},
+        validateConfig: () => {},
+        verifyRuntimeForInstall: () => createHealthyRuntimeResult()
+      },
+      promptForApiKey: async () => {
+        promptCalls += 1;
+        return "gp-test-key";
+      },
+      promptForModel: async () => DEFAULT_MODEL,
+      validateApiKey: (apiKey) => apiKey,
+      writeSettings: async () => {}
+    }
+  ),
     /did not create \/tmp\/openclaw\.json/
   );
 

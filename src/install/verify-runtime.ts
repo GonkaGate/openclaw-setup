@@ -1,13 +1,11 @@
 import {
-  createOpenClawClient,
   type GatewayRpcProbeResult,
   type HealthSnapshotProbeResult,
   type OpenClawClient,
-  type OpenClawClientCommandRunner,
+  OPENCLAW_COMMANDS,
   type ResolvedPrimaryModelProbeResult
 } from "./openclaw-client.js";
 import { RuntimeVerificationError } from "./install-errors.js";
-import { runOpenClawCommand } from "./openclaw-command.js";
 
 const NEXT_GATEWAY_COMMAND = "openclaw gateway" as const;
 const VERIFY_COMMAND = "npx @gonkagate/openclaw verify";
@@ -49,7 +47,7 @@ interface FailedRuntimeVerificationResult {
 }
 
 type RuntimeProbeResult = GatewayRpcProbeResult | HealthSnapshotProbeResult | ResolvedPrimaryModelProbeResult;
-type RuntimeProbeClient = Pick<OpenClawClient, "probeGatewayRpc" | "probeHealthSnapshot" | "probeResolvedPrimaryModel">;
+export type RuntimeProbeClient = Pick<OpenClawClient, "probeGatewayRpc" | "probeHealthSnapshot" | "probeResolvedPrimaryModel">;
 
 interface RuntimeStep<Result extends RuntimeProbeResult> {
   commandFailureKind: RuntimeVerificationFailureKind;
@@ -58,21 +56,19 @@ interface RuntimeStep<Result extends RuntimeProbeResult> {
   validate: (result: Result) => FailedRuntimeVerificationResult | undefined;
 }
 
-export type RuntimeCommandRunner = OpenClawClientCommandRunner;
 export type VerifyRuntimeResult = HealthyRuntimeVerificationResult | FailedRuntimeVerificationResult;
 export type InstallRuntimeCheckResult = HealthyRuntimeVerificationResult | GatewayUnavailableInstallRuntimeResult;
+export type { HealthyRuntimeVerificationResult };
 
 export function verifyOpenClawRuntime(
   filePath: string,
   expectedPrimaryModelRef: string,
-  runCommand: RuntimeCommandRunner = runOpenClawCommand
+  openClawClient: RuntimeProbeClient
 ): VerifyRuntimeResult {
-  const openClawClient: RuntimeProbeClient = createOpenClawClient({ runCommand });
-
   const gatewayResult = runRuntimeStep({
     commandFailureKind: RUNTIME_KIND.gatewayUnavailable,
     commandFailureMessage:
-      'Unable to confirm that the local OpenClaw Gateway RPC is healthy through "openclaw gateway status --require-rpc --json". ' +
+      `Unable to confirm that the local OpenClaw Gateway RPC is healthy through "${OPENCLAW_COMMANDS.gatewayRpc.description}". ` +
       `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`,
     probe: () => openClawClient.probeGatewayRpc(),
     validate: (result) => {
@@ -80,8 +76,8 @@ export function verifyOpenClawRuntime(
         return createFailedRuntimeResult(
           RUNTIME_KIND.unexpectedOutput,
           formatUnexpectedJsonReport(
-            '"openclaw gateway status --require-rpc --json"',
-            'a JSON object with a boolean "rpc.ok" field',
+            `"${OPENCLAW_COMMANDS.gatewayRpc.description}"`,
+            OPENCLAW_COMMANDS.gatewayRpc.expectedShape,
             result
           )
         );
@@ -94,7 +90,7 @@ export function verifyOpenClawRuntime(
       return createFailedRuntimeResult(
         RUNTIME_KIND.gatewayUnavailable,
         formatCommandFailure(
-          'OpenClaw did not report a healthy Gateway RPC through "openclaw gateway status --require-rpc --json". ' +
+          `OpenClaw did not report a healthy Gateway RPC through "${OPENCLAW_COMMANDS.gatewayRpc.description}". ` +
             `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`,
           result
         )
@@ -109,15 +105,15 @@ export function verifyOpenClawRuntime(
   const healthResult = runRuntimeStep({
     commandFailureKind: RUNTIME_KIND.runtimeUnhealthy,
     commandFailureMessage:
-      `Unable to confirm OpenClaw health through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
+      `Unable to confirm OpenClaw health through "${OPENCLAW_COMMANDS.healthSnapshot.description}". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
     probe: () => openClawClient.probeHealthSnapshot(),
     validate: (result) => {
       if (result.reportKind === "unparsed") {
         return createFailedRuntimeResult(
           RUNTIME_KIND.unexpectedOutput,
           formatUnexpectedJsonReport(
-            '"openclaw health --json"',
-            'a JSON object with a boolean "ok" field',
+            `"${OPENCLAW_COMMANDS.healthSnapshot.description}"`,
+            OPENCLAW_COMMANDS.healthSnapshot.expectedShape,
             result
           )
         );
@@ -130,7 +126,7 @@ export function verifyOpenClawRuntime(
       return createFailedRuntimeResult(
         RUNTIME_KIND.runtimeUnhealthy,
         formatCommandFailure(
-          `OpenClaw reported an unhealthy runtime through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
+          `OpenClaw reported an unhealthy runtime through "${OPENCLAW_COMMANDS.healthSnapshot.description}". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
           result
         )
       );
@@ -144,7 +140,7 @@ export function verifyOpenClawRuntime(
   const resolvedModelResult = runRuntimeStep({
     commandFailureKind: RUNTIME_KIND.modelResolutionFailed,
     commandFailureMessage:
-      `Unable to confirm the resolved primary model through "openclaw models status --plain". Rerun "${VERIFY_COMMAND}" after OpenClaw finishes loading the config.`,
+      `Unable to confirm the resolved primary model through "${OPENCLAW_COMMANDS.resolvedPrimaryModel.description}". Rerun "${VERIFY_COMMAND}" after OpenClaw finishes loading the config.`,
     probe: () => openClawClient.probeResolvedPrimaryModel(),
     validate: (result) => verifyResolvedPrimaryModel(filePath, expectedPrimaryModelRef, result)
   });
@@ -156,7 +152,9 @@ export function verifyOpenClawRuntime(
   const resolvedPrimaryModelRef = resolvedModelResult.resolvedPrimaryModelRef;
 
   if (!resolvedPrimaryModelRef) {
-    throw new Error('Resolved primary model verification succeeded without a value from "openclaw models status --plain".');
+    throw new Error(
+      `Resolved primary model verification succeeded without a value from "${OPENCLAW_COMMANDS.resolvedPrimaryModel.description}".`
+    );
   }
 
   return createHealthyRuntimeResult(resolvedPrimaryModelRef);
@@ -165,9 +163,9 @@ export function verifyOpenClawRuntime(
 export function verifyOpenClawRuntimeForInstall(
   filePath: string,
   expectedPrimaryModelRef: string,
-  runCommand: RuntimeCommandRunner = runOpenClawCommand
+  openClawClient: RuntimeProbeClient
 ): InstallRuntimeCheckResult {
-  const result = verifyOpenClawRuntime(filePath, expectedPrimaryModelRef, runCommand);
+  const result = verifyOpenClawRuntime(filePath, expectedPrimaryModelRef, openClawClient);
 
   if (result.kind === RUNTIME_KIND.healthy) {
     return result;
@@ -187,9 +185,9 @@ export function verifyOpenClawRuntimeForInstall(
 export function verifyOpenClawRuntimeForVerify(
   filePath: string,
   expectedPrimaryModelRef: string,
-  runCommand: RuntimeCommandRunner = runOpenClawCommand
+  openClawClient: RuntimeProbeClient
 ): HealthyRuntimeVerificationResult {
-  const result = verifyOpenClawRuntime(filePath, expectedPrimaryModelRef, runCommand);
+  const result = verifyOpenClawRuntime(filePath, expectedPrimaryModelRef, openClawClient);
 
   if (result.kind !== RUNTIME_KIND.healthy) {
     throw new RuntimeVerificationError(result.kind, "verify", result.message);
@@ -256,14 +254,17 @@ function verifyResolvedPrimaryModel(
   if (!resolvedPrimaryModelRef) {
     return createFailedRuntimeResult(
       RUNTIME_KIND.modelResolutionFailed,
-      formatCommandFailure('OpenClaw returned an empty response for "openclaw models status --plain".', modelsStatusResult)
+      formatCommandFailure(
+        `OpenClaw returned an empty response for "${OPENCLAW_COMMANDS.resolvedPrimaryModel.description}".`,
+        modelsStatusResult
+      )
     );
   }
 
   if (resolvedPrimaryModelRef !== expectedPrimaryModelRef) {
     return createFailedRuntimeResult(
       RUNTIME_KIND.modelResolutionFailed,
-      `OpenClaw resolved primary model "${resolvedPrimaryModelRef}" through "openclaw models status --plain", ` +
+      `OpenClaw resolved primary model "${resolvedPrimaryModelRef}" through "${OPENCLAW_COMMANDS.resolvedPrimaryModel.description}", ` +
         `but ${filePath} expects "${expectedPrimaryModelRef}".`
     );
   }

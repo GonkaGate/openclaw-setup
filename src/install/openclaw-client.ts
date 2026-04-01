@@ -10,6 +10,43 @@ import {
 import { type OpenClawCommandContext } from "./install-errors.js";
 import { asPlainObject, type PlainObject } from "./object-utils.js";
 
+const OPENCLAW_COMMAND = "openclaw" as const;
+
+interface OpenClawCommandSpec {
+  args: readonly string[];
+  description: string;
+  expectedShape?: string;
+}
+
+export const OPENCLAW_COMMANDS = {
+  ensureInstalled: {
+    args: ["--version"],
+    description: "openclaw --version"
+  },
+  gatewayRpc: {
+    args: ["gateway", "status", "--require-rpc", "--json"],
+    description: "openclaw gateway status --require-rpc --json",
+    expectedShape: 'a JSON object with a boolean "rpc.ok" field'
+  },
+  healthSnapshot: {
+    args: ["health", "--json"],
+    description: "openclaw health --json",
+    expectedShape: 'a JSON object with a boolean "ok" field'
+  },
+  initializeBaseConfig: {
+    args: ["setup"],
+    description: "openclaw setup"
+  },
+  resolvedPrimaryModel: {
+    args: ["models", "status", "--plain"],
+    description: "openclaw models status --plain"
+  },
+  validateConfig: {
+    args: ["config", "validate", "--json"],
+    description: "openclaw config validate --json"
+  }
+} as const satisfies Record<string, OpenClawCommandSpec>;
+
 interface OpenClawValidationIssue {
   message?: string;
   path?: string;
@@ -91,44 +128,44 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
 
   return {
     ensureInstalled() {
-      const args = ["--version"] as const;
-      const result = runCommand("openclaw", [...args], {
+      const commandSpec = OPENCLAW_COMMANDS.ensureInstalled;
+      const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
         stdio: "ignore"
       });
 
       throwIfCommandErrored(result, {
-        args,
-        command: "openclaw",
+        args: commandSpec.args,
+        command: OPENCLAW_COMMAND,
         operation: "verify the local OpenClaw install"
       });
 
       if (result.status !== 0) {
-        throw new Error(`Unable to verify the local OpenClaw install. "openclaw --version" exited with code ${result.status}.`);
+        throw new Error(`Unable to verify the local OpenClaw install. "${commandSpec.description}" exited with code ${result.status}.`);
       }
     },
 
     initializeBaseConfig() {
-      const args = ["setup"] as const;
-      const result = runCommand("openclaw", [...args], {
+      const commandSpec = OPENCLAW_COMMANDS.initializeBaseConfig;
+      const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
         stdio: "inherit"
       });
 
       throwIfCommandErrored(result, {
-        args,
-        command: "openclaw",
+        args: commandSpec.args,
+        command: OPENCLAW_COMMAND,
         operation: "initialize the local OpenClaw config automatically"
       });
 
       if (result.status !== 0) {
         throw new Error(
-          `Unable to initialize the local OpenClaw config automatically. "openclaw setup" exited with code ${result.status}. Update OpenClaw or run "openclaw setup" manually, then rerun this installer.`
+          `Unable to initialize the local OpenClaw config automatically. "${commandSpec.description}" exited with code ${result.status}. Update OpenClaw or run "openclaw setup" manually, then rerun this installer.`
         );
       }
     },
 
     validateConfig(filePath: string) {
-      const args = ["config", "validate", "--json"] as const;
-      const result = runCommand("openclaw", [...args], {
+      const commandSpec = OPENCLAW_COMMANDS.validateConfig;
+      const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
         env: {
           ...env,
           OPENCLAW_CONFIG_PATH: filePath
@@ -137,8 +174,8 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
       });
 
       throwIfCommandErrored(result, {
-        args,
-        command: "openclaw",
+        args: commandSpec.args,
+        command: OPENCLAW_COMMAND,
         operation: `validate the OpenClaw config at ${filePath}`
       });
 
@@ -160,14 +197,14 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
     },
 
     probeGatewayRpc() {
-      const args = ["gateway", "status", "--require-rpc", "--json"] as const;
-      const result = runCommand("openclaw", [...args], {
+      const commandSpec = OPENCLAW_COMMANDS.gatewayRpc;
+      const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
         stdio: "pipe"
       });
 
       throwIfCommandErrored(result, {
-        args,
-        command: "openclaw",
+        args: commandSpec.args,
+        command: OPENCLAW_COMMAND,
         operation: "check the local OpenClaw Gateway RPC"
       });
 
@@ -189,14 +226,14 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
     },
 
     probeHealthSnapshot() {
-      const args = ["health", "--json"] as const;
-      const result = runCommand("openclaw", [...args], {
+      const commandSpec = OPENCLAW_COMMANDS.healthSnapshot;
+      const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
         stdio: "pipe"
       });
 
       throwIfCommandErrored(result, {
-        args,
-        command: "openclaw",
+        args: commandSpec.args,
+        command: OPENCLAW_COMMAND,
         operation: "check the local OpenClaw health snapshot"
       });
 
@@ -218,14 +255,14 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
     },
 
     probeResolvedPrimaryModel() {
-      const args = ["models", "status", "--plain"] as const;
-      const result = runCommand("openclaw", [...args], {
+      const commandSpec = OPENCLAW_COMMANDS.resolvedPrimaryModel;
+      const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
         stdio: "pipe"
       });
 
       throwIfCommandErrored(result, {
-        args,
-        command: "openclaw",
+        args: commandSpec.args,
+        command: OPENCLAW_COMMAND,
         operation: "confirm the resolved primary model"
       });
 
@@ -245,6 +282,25 @@ function throwIfCommandErrored(
   context: OpenClawCommandContext
 ): void {
   throwIfOpenClawCommandErrored(result, context);
+}
+
+export function ensureOpenClawInstalled(
+  runCommand: OpenClawClientCommandRunner = runOpenClawCommand
+): void {
+  createOpenClawClient({ runCommand }).ensureInstalled();
+}
+
+export function initializeOpenClawBaseConfig(
+  runCommand: OpenClawClientCommandRunner = runOpenClawCommand
+): void {
+  createOpenClawClient({ runCommand }).initializeBaseConfig();
+}
+
+export function validateOpenClawConfig(
+  filePath: string,
+  runCommand: OpenClawClientCommandRunner = runOpenClawCommand
+): void {
+  createOpenClawClient({ runCommand }).validateConfig(filePath);
 }
 
 function parseValidationReport(stdout: string): OpenClawValidationReport | undefined {
@@ -287,7 +343,7 @@ function formatValidationCommandFailure(filePath: string, result: OpenClawComman
   const outputSuffix = output.length > 0 ? `\n\nOpenClaw output:\n${output}` : "";
 
   return (
-    `Unable to validate the OpenClaw config at ${filePath} with "openclaw config validate --json". ` +
+    `Unable to validate the OpenClaw config at ${filePath} with "${OPENCLAW_COMMANDS.validateConfig.description}". ` +
     `Update OpenClaw and rerun this installer.${outputSuffix}`
   );
 }

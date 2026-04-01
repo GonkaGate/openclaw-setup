@@ -125,6 +125,7 @@ This repo does not do:
 │   │   ├── backup.ts
 │   │   ├── bootstrap-gateway.ts
 │   │   ├── check-openclaw.ts
+│   │   ├── cli-display.ts
 │   │   ├── file-permissions.ts
 │   │   ├── install-use-case.ts
 │   │   ├── load-settings.ts
@@ -133,6 +134,7 @@ This repo does not do:
 │   │   ├── openclaw-client.ts
 │   │   ├── openclaw-command.ts
 │   │   ├── openclaw-config-validation.ts
+│   │   ├── openclaw-facade.ts
 │   │   ├── object-utils.ts
 │   │   ├── prompts.ts
 │   │   ├── settings-paths.ts
@@ -181,7 +183,7 @@ It is responsible for:
 - rendering help and version output
 - resolving the active target config path locally from the current environment
 - dispatching to the install and verify use-case modules
-- printing user-facing success output and next steps
+- printing transport-ready display output returned by the use-case layer
 
 `src/cli.ts` is intentionally a thin transport layer. Business-step orchestration should stay out of this file unless it is purely about CLI parsing or console output.
 
@@ -202,6 +204,7 @@ It is responsible for:
 - creating a backup before overwriting an existing config
 - writing the final file
 - performing the install-time runtime probe and returning the resulting outcome
+- producing the transport-ready install display model consumed by `src/cli.ts`
 
 ### `src/install/verify-use-case.ts`
 
@@ -214,7 +217,18 @@ It is responsible for:
 - validating the current config through `openclaw config validate --json`
 - delegating config verification to `verify-settings.ts`
 - delegating runtime verification to `verify-runtime.ts`
-- returning the structured verification outcome back to the CLI transport layer
+- returning the structured verification outcome plus the transport-ready display model back to the CLI transport layer
+
+### `src/install/cli-display.ts`
+
+This file owns the stable display model passed from the use-case layer to the CLI transport.
+
+It is responsible for:
+
+- defining the sectioned CLI display shape
+- mapping install outcomes into user-facing success sections
+- mapping verify outcomes into user-facing success sections
+- keeping workflow-detail branching out of `src/cli.ts`
 
 ### `src/constants/`
 
@@ -341,6 +355,16 @@ It must:
 
 It should rely on the shared OpenClaw client boundary for `openclaw config validate --json` command semantics.
 
+### `src/install/openclaw-facade.ts`
+
+This file is the shared composition boundary for install and verify use-cases.
+
+It is responsible for:
+
+- constructing one shared `OpenClaw` capability bag from the typed OpenClaw client
+- exposing config validation, candidate validation, and runtime verification through one injected seam
+- keeping `src/install/install-use-case.ts` and `src/install/verify-use-case.ts` from reassembling OpenClaw dependencies independently
+
 ### `src/install/openclaw-client.ts`
 
 This file is the typed OpenClaw CLI adapter.
@@ -348,6 +372,7 @@ This file is the typed OpenClaw CLI adapter.
 It must:
 
 - own command spawning options for version checks, setup, validation, and runtime probes
+- export the canonical command descriptions and probe expectations consumed by higher-level runtime validation
 - own `OPENCLAW_CONFIG_PATH` env wiring for explicit config validation
 - parse structured CLI output for validation, gateway status, health, and model status
 - keep OpenClaw command semantics centralized so feature modules do not duplicate command names, flags, and output parsing

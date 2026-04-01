@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { toPrimaryModelRef, DEFAULT_MODEL } from "../src/constants/models.js";
 import { INSTALL_ERROR_CODE, RuntimeVerificationError } from "../src/install/install-errors.js";
+import { createOpenClawClient } from "../src/install/openclaw-client.js";
 import {
   verifyOpenClawRuntime,
   verifyOpenClawRuntimeForInstall,
@@ -36,13 +37,19 @@ function createRunner(results: readonly StubCommandResult[]) {
   };
 }
 
+function createProbeClient(results: readonly StubCommandResult[]) {
+  return createOpenClawClient({
+    runCommand: createRunner(results)
+  });
+}
+
 test("verifyOpenClawRuntime accepts a healthy Gateway, health snapshot, and resolved model", () => {
   const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
 
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     expectedPrimaryModelRef,
-    createRunner([
+    createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":true}' },
       { status: 0, stdout: `${expectedPrimaryModelRef}\n` }
@@ -59,7 +66,7 @@ test("verifyOpenClawRuntime fails clearly when the Gateway RPC probe fails", () 
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
-    createRunner([
+    createProbeClient([
       { status: 1, stderr: "rpc failed" }
     ])
   );
@@ -76,7 +83,7 @@ test("verifyOpenClawRuntime rejects malformed gateway status output even when th
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
-    createRunner([
+    createProbeClient([
       { status: 0, stdout: "not json" }
     ])
   );
@@ -93,7 +100,7 @@ test("verifyOpenClawRuntime rejects malformed health output even when the comman
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
-    createRunner([
+    createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: "[]" }
     ])
@@ -111,7 +118,7 @@ test("verifyOpenClawRuntime rejects gateway status reports whose rpc.ok flag is 
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
-    createRunner([
+    createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":false}}' }
     ])
   );
@@ -128,7 +135,7 @@ test("verifyOpenClawRuntime rejects unhealthy health snapshots", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
-    createRunner([
+    createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":false}' }
     ])
@@ -146,7 +153,7 @@ test("verifyOpenClawRuntime rejects empty resolved-model output", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
-    createRunner([
+    createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":true}' },
       { status: 0, stdout: "   \n" }
@@ -165,7 +172,7 @@ test("verifyOpenClawRuntime rejects mismatched resolved models", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
-    createRunner([
+    createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":true}' },
       { status: 0, stdout: "openai/not-the-expected-model\n" }
@@ -184,7 +191,7 @@ test("verifyOpenClawRuntimeForInstall tolerates gateway-unavailable results and 
   const result = verifyOpenClawRuntimeForInstall(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
-    createRunner([
+    createProbeClient([
       { status: 1, stderr: "rpc failed" }
     ])
   );
@@ -201,7 +208,7 @@ test("verifyOpenClawRuntimeForInstall keeps malformed gateway status output stri
       verifyOpenClawRuntimeForInstall(
         "/tmp/openclaw.json",
         toPrimaryModelRef(DEFAULT_MODEL),
-        createRunner([
+        createProbeClient([
           { status: 0, stdout: "not json" }
         ])
       ),
@@ -223,7 +230,7 @@ test("verifyOpenClawRuntimeForInstall rethrows strict runtime failures for insta
       verifyOpenClawRuntimeForInstall(
         "/tmp/openclaw.json",
         toPrimaryModelRef(DEFAULT_MODEL),
-        createRunner([
+        createProbeClient([
           { status: 0, stdout: '{"rpc":{"ok":true}}' },
           { status: 0, stdout: '{"ok":false}' }
         ])
@@ -246,7 +253,7 @@ test("verifyOpenClawRuntimeForVerify keeps verify strict for every non-healthy r
       verifyOpenClawRuntimeForVerify(
         "/tmp/openclaw.json",
         toPrimaryModelRef(DEFAULT_MODEL),
-        createRunner([
+        createProbeClient([
           { status: 1, stderr: "rpc failed" }
         ])
       ),
@@ -267,7 +274,7 @@ test("verifyOpenClawRuntimeForVerify preserves successful runtime results unchan
   const result = verifyOpenClawRuntimeForVerify(
     "/tmp/openclaw.json",
     expectedPrimaryModelRef,
-    createRunner([
+    createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":true}' },
       { status: 0, stdout: `${expectedPrimaryModelRef}\n` }
@@ -289,16 +296,16 @@ test("verifyOpenClawRuntimeForInstall rethrows every strict failure kind except 
 
   for (const kind of strictFailureKinds) {
     const runner = kind === "unexpected_output"
-      ? createRunner([
+      ? createProbeClient([
           { status: 0, stdout: '{"rpc":{"ok":true}}' },
           { status: 0, stdout: "[]" }
         ])
       : kind === "runtime_unhealthy"
-        ? createRunner([
+        ? createProbeClient([
             { status: 0, stdout: '{"rpc":{"ok":true}}' },
             { status: 0, stdout: '{"ok":false}' }
           ])
-        : createRunner([
+        : createProbeClient([
             { status: 0, stdout: '{"rpc":{"ok":true}}' },
             { status: 0, stdout: '{"ok":true}' },
             { status: 0, stdout: "openai/not-the-expected-model\n" }

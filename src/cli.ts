@@ -7,11 +7,11 @@ import {
   SUPPORTED_MODELS,
   SUPPORTED_MODEL_KEYS
 } from "./constants/models.js";
-import { formatUnixMode } from "./install/file-permissions.js";
-import { runInstallUseCase as runInstallUseCaseImpl, type InstallOutcome } from "./install/install-use-case.js";
+import type { CliDisplay } from "./install/cli-display.js";
+import { runInstallUseCase as runInstallUseCaseImpl } from "./install/install-use-case.js";
 import { getSettingsTarget as getSettingsTargetImpl } from "./install/settings-paths.js";
 import { runVerifyUseCase as runVerifyUseCaseImpl } from "./install/verify-use-case.js";
-import type { SupportedModel, SupportedModelKey } from "./constants/models.js";
+import type { SupportedModelKey } from "./constants/models.js";
 
 interface CliOptions {
   modelKey?: SupportedModelKey;
@@ -136,40 +136,6 @@ function printIntro(targetPath: string): void {
   console.log(`Curated model choice: ${SUPPORTED_MODEL_KEYS.join(", ")}.\n`);
 }
 
-function printSuccess(targetPath: string, selectedModel: SupportedModel, result: InstallOutcome): void {
-  console.log("\nInstall complete.\n");
-  console.log(`Config: ${targetPath}`);
-  console.log(`Model: ${selectedModel.displayName} (${selectedModel.modelId})`);
-
-  if (result.configPreparation.source === "fresh") {
-    console.log("Base setup: initialized automatically with OpenClaw defaults");
-  }
-
-  if (result.configPreparation.addedLocalGatewayMode) {
-    console.log('Gateway mode: set to "local" for first-run local startup');
-  }
-
-  if (result.backupPath) {
-    console.log(`Backup: ${result.backupPath}`);
-  }
-
-  if (result.runtime.kind === "gateway_unavailable") {
-    console.log("\nNext step:");
-    console.log(result.runtime.nextCommand);
-    return;
-  }
-
-  console.log(`Resolved model: ${result.runtime.resolvedPrimaryModelRef}`);
-  console.log("Gateway RPC: reachable");
-  console.log("Health snapshot: ok");
-  console.log("\nNext steps:");
-  console.log("1. OpenClaw should hot-reload this config automatically.");
-  console.log("2. Verify with: npx @gonkagate/openclaw verify");
-  console.log("3. Double-check the resolved model with: openclaw models status");
-  console.log("4. In chat, run: /status");
-  console.log("5. If the change does not appear, run: openclaw gateway restart");
-}
-
 function printVerifyIntro(targetPath: string): void {
   console.log("Verify the local OpenClaw config for GonkaGate.\n");
   console.log("This command is read-only and checks both your active OpenClaw config and the active local runtime.");
@@ -178,21 +144,19 @@ function printVerifyIntro(targetPath: string): void {
   console.log(`Expected API adapter: ${GONKAGATE_OPENAI_API}\n`);
 }
 
-function printVerifySuccess(
-  targetPath: string,
-  selectedModel: SupportedModel,
-  configMode: number,
-  resolvedPrimaryModelRef: string
-): void {
-  console.log("\nVerification complete.\n");
-  console.log(`Config: ${targetPath}`);
-  console.log(`Model: ${selectedModel.displayName} (${selectedModel.modelId})`);
-  console.log(`Resolved model: ${resolvedPrimaryModelRef}`);
-  console.log("API key: present and matches the expected gp-... format");
-  console.log(`Permissions: ${formatUnixMode(configMode)}`);
-  console.log("Gateway RPC: reachable");
-  console.log("Health snapshot: ok");
-  console.log("\nOpenClaw is configured correctly for GonkaGate.");
+function printDisplay(display: CliDisplay): void {
+  for (const section of display.sections) {
+    console.log("");
+
+    if (section.heading) {
+      console.log(section.heading);
+      console.log("");
+    }
+
+    for (const line of section.lines) {
+      console.log(line);
+    }
+  }
 }
 
 async function runInstall(
@@ -211,7 +175,7 @@ async function runInstall(
       };
   const result = await cliDependencies.runInstallUseCase(request);
 
-  printSuccess(targetPath, result.selectedModel, result);
+  printDisplay(result.display);
 }
 
 async function runVerify(targetPath: string, cliDependencies: CliDependencies): Promise<void> {
@@ -220,7 +184,7 @@ async function runVerify(targetPath: string, cliDependencies: CliDependencies): 
     targetPath
   });
 
-  printVerifySuccess(targetPath, result.selectedModel, result.configMode, result.resolvedPrimaryModelRef);
+  printDisplay(result.display);
 }
 
 export async function run(argv = process.argv.slice(2), dependencies: Partial<CliDependencies> = {}): Promise<void> {

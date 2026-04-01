@@ -6,7 +6,12 @@ import {
 } from "../constants/models.js";
 import type { SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import { MANAGED_SETTINGS_PATHS, readManagedSettings } from "./managed-settings-access.js";
+import {
+  MANAGED_SETTINGS_PATHS,
+  readManagedSettingsSnapshot,
+  type ManagedDefaultModelSnapshot,
+  type ManagedOpenAiProviderSnapshot
+} from "./managed-settings-access.js";
 import { formatUnixMode, hasOwnerOnlyPermissions } from "./file-permissions.js";
 import { asPlainObject, type PlainObject } from "./object-utils.js";
 import { validateApiKey } from "./validate-api-key.js";
@@ -17,12 +22,12 @@ export interface VerifySettingsResult {
 }
 
 export async function verifySettings(filePath: string, settings: OpenClawConfig): Promise<VerifySettingsResult> {
-  const managed = readManagedSettings(settings, filePath);
+  const managed = readManagedSettingsSnapshot(settings, filePath);
   const provider = requireManagedOpenAIProvider(managed.openaiProvider, filePath);
   const baseUrl = requireNonEmptyString(provider.baseUrl, MANAGED_SETTINGS_PATHS.openaiBaseUrl, filePath);
   const api = requireNonEmptyString(provider.api, MANAGED_SETTINGS_PATHS.openaiApi, filePath);
   requireManagedApiKey(provider.apiKey, filePath);
-  requirePresentArray(managed.openaiModels, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
+  requirePresentArray(provider.models, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
   const primaryModelRef = getPrimaryModelRef(managed.defaultModel, filePath);
 
   if (baseUrl !== GONKAGATE_OPENAI_BASE_URL) {
@@ -57,7 +62,10 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
   };
 }
 
-function requireManagedOpenAIProvider(openaiProvider: PlainObject | undefined, filePath: string): PlainObject {
+function requireManagedOpenAIProvider(
+  openaiProvider: ManagedOpenAiProviderSnapshot | undefined,
+  filePath: string
+): ManagedOpenAiProviderSnapshot {
   if (!openaiProvider) {
     throw new Error(
       `Expected "${MANAGED_SETTINGS_PATHS.openaiProvider}" in ${filePath} to exist. Run "npx @gonkagate/openclaw" to apply GonkaGate settings.`
@@ -67,7 +75,7 @@ function requireManagedOpenAIProvider(openaiProvider: PlainObject | undefined, f
   return openaiProvider;
 }
 
-function getPrimaryModelRef(defaultModel: PlainObject | undefined, filePath: string): string {
+function getPrimaryModelRef(defaultModel: ManagedDefaultModelSnapshot | undefined, filePath: string): string {
   return requireNonEmptyString(defaultModel?.primary, MANAGED_SETTINGS_PATHS.primaryModel, filePath);
 }
 

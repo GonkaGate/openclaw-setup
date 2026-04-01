@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import JSON5 from "json5";
 import type { OpenClawConfig } from "../types/settings.js";
 import { SettingsParseError } from "./install-errors.js";
-import { readManagedSettings } from "./managed-settings-access.js";
+import { assertManagedSettingsShape } from "./managed-settings-access.js";
 import { isPlainObject } from "./object-utils.js";
 
 export interface LoadedSettingsResult {
@@ -42,7 +42,7 @@ export async function loadSettings(filePath: string): Promise<LoadSettingsResult
   if (!isPlainObject(parsed)) {
     throw new Error(`Expected ${filePath} to contain a JSON5 object.`);
   }
-  readManagedSettings(parsed, filePath);
+  assertManagedSettingsShape(parsed, filePath);
 
   return {
     kind: "loaded",

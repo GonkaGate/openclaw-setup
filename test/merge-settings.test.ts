@@ -97,3 +97,45 @@ test("mergeSettingsWithGonkaGate does not create agents.defaults.models when no 
   });
 });
 
+test("mergeSettingsWithGonkaGate preserves unrelated top-level settings", () => {
+  const merged = mergeSettingsWithGonkaGate(
+    {
+      theme: "solarized",
+      workspace: {
+        root: "~/.openclaw/workspace"
+      }
+    },
+    "gp-test-key",
+    DEFAULT_MODEL
+  );
+
+  assert.equal(merged.theme, "solarized");
+  assert.deepEqual(merged.workspace, {
+    root: "~/.openclaw/workspace"
+  });
+});
+
+test("mergeSettingsWithGonkaGate preserves unrelated agents.defaults.model keys", () => {
+  const merged = mergeSettingsWithGonkaGate(
+    {
+      agents: {
+        defaults: {
+          model: {
+            fallback: "openai/legacy-model",
+            temperature: 0.2
+          }
+        }
+      }
+    },
+    "gp-test-key",
+    DEFAULT_MODEL
+  );
+
+  assert.deepEqual((merged.agents as Record<string, unknown>).defaults, {
+    model: {
+      fallback: "openai/legacy-model",
+      primary: "openai/qwen/qwen3-235b-a22b-instruct-2507-fp8",
+      temperature: 0.2
+    }
+  });
+});

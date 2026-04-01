@@ -1,7 +1,7 @@
 import { toPrimaryModelRef } from "../constants/models.js";
-import { createOpenClawClient, type OpenClawClient } from "./openclaw-client.js";
+import { createVerifySuccessDisplay, type CliDisplay } from "./cli-display.js";
 import { loadSettings as loadSettingsImpl, requireLoadedSettings } from "./load-settings.js";
-import { verifyOpenClawRuntimeForVerify as verifyOpenClawRuntimeForVerifyImpl } from "./verify-runtime.js";
+import { createOpenClawFacade, type OpenClawFacade } from "./openclaw-facade.js";
 import { verifySettings as verifySettingsImpl } from "./verify-settings.js";
 
 export interface VerifyRequest {
@@ -10,6 +10,7 @@ export interface VerifyRequest {
 
 export interface VerifyOutcome {
   configMode: number;
+  display: CliDisplay;
   resolvedPrimaryModelRef: string;
   selectedModel: Awaited<ReturnType<typeof verifySettingsImpl>>["selectedModel"];
   targetPath: string;
@@ -17,15 +18,13 @@ export interface VerifyOutcome {
 
 export interface VerifyUseCaseDependencies {
   loadSettings: typeof loadSettingsImpl;
-  openClaw: Pick<OpenClawClient, "ensureInstalled" | "validateConfig">;
-  verifyOpenClawRuntimeForVerify: typeof verifyOpenClawRuntimeForVerifyImpl;
+  openClaw: Pick<OpenClawFacade, "ensureInstalled" | "validateConfig" | "verifyRuntimeForVerify">;
   verifySettings: typeof verifySettingsImpl;
 }
 
 export const defaultVerifyUseCaseDependencies = {
   loadSettings: loadSettingsImpl,
-  openClaw: createOpenClawClient(),
-  verifyOpenClawRuntimeForVerify: verifyOpenClawRuntimeForVerifyImpl,
+  openClaw: createOpenClawFacade(),
   verifySettings: verifySettingsImpl
 } satisfies VerifyUseCaseDependencies;
 
@@ -42,13 +41,19 @@ export async function runVerifyUseCase(
 
   dependencies.openClaw.validateConfig(request.targetPath);
   const result = await dependencies.verifySettings(request.targetPath, loaded.settings);
-  const runtimeResult = dependencies.verifyOpenClawRuntimeForVerify(
+  const runtimeResult = dependencies.openClaw.verifyRuntimeForVerify(
     request.targetPath,
     toPrimaryModelRef(result.selectedModel)
   );
 
   return {
     configMode: result.configMode,
+    display: createVerifySuccessDisplay({
+      configMode: result.configMode,
+      resolvedPrimaryModelRef: runtimeResult.resolvedPrimaryModelRef,
+      selectedModel: result.selectedModel,
+      targetPath: request.targetPath
+    }),
     resolvedPrimaryModelRef: runtimeResult.resolvedPrimaryModelRef,
     selectedModel: result.selectedModel,
     targetPath: request.targetPath

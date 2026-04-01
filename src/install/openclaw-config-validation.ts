@@ -4,13 +4,16 @@ import path from "node:path";
 import type { OpenClawConfig } from "../types/settings.js";
 import { DEFAULT_OWNER_ONLY_MODE } from "./file-permissions.js";
 import { TemporaryCandidateCleanupError } from "./install-errors.js";
-import { createOpenClawClient, type OpenClawClientCommandRunner } from "./openclaw-client.js";
+import {
+  type OpenClawClientCommandRunner,
+  validateOpenClawConfig as validateOpenClawConfigWithRunner
+} from "./openclaw-client.js";
 import { runOpenClawCommand } from "./openclaw-command.js";
 
 export type ValidationCommandRunner = OpenClawClientCommandRunner;
 export type ValidateOpenClawConfig = (filePath: string) => void | Promise<void>;
 
-interface ValidationFileDependencies {
+export interface ValidationFileDependencies {
   chmodFile: typeof chmod;
   createDirectory: typeof mkdir;
   removeFile: typeof rm;
@@ -65,5 +68,5 @@ export function validateOpenClawConfig(
   filePath: string,
   runCommand: ValidationCommandRunner = runOpenClawCommand
 ): void {
-  createOpenClawClient({ runCommand }).validateConfig(filePath);
+  validateOpenClawConfigWithRunner(filePath, runCommand);
 }

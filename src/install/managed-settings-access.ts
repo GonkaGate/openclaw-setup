@@ -1,6 +1,6 @@
 import { OPENCLAW_PROVIDER_ID } from "../constants/gateway.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import { asPlainObject, copyPlainObject, type PlainObject } from "./object-utils.js";
+import { asPlainObject, type PlainObject } from "./object-utils.js";
 
 const OPENAI_PROVIDER_PATH = `models.providers.${OPENCLAW_PROVIDER_ID}` as const;
 
@@ -20,46 +20,46 @@ export const MANAGED_SETTINGS_PATHS = {
   openaiModels: `${OPENAI_PROVIDER_PATH}.models`
 } as const;
 
+export interface ManagedDefaultModelSnapshot {
+  primary: unknown;
+  raw: PlainObject;
+}
+
+export interface ManagedOpenAiProviderSnapshot {
+  api: unknown;
+  apiKey: unknown;
+  baseUrl: unknown;
+  models: unknown[] | undefined;
+  raw: PlainObject;
+}
+
 export interface ManagedSettingsSnapshot {
   agents: PlainObject | undefined;
   allowlist: PlainObject | undefined;
-  defaultModel: PlainObject | undefined;
+  defaultModel: ManagedDefaultModelSnapshot | undefined;
   defaults: PlainObject | undefined;
   gateway: PlainObject | undefined;
   models: PlainObject | undefined;
-  openaiModels: unknown[] | undefined;
-  openaiProvider: PlainObject | undefined;
+  openaiProvider: ManagedOpenAiProviderSnapshot | undefined;
   providers: PlainObject | undefined;
-}
-
-export interface ManagedSettingsUpdateState {
-  agents: PlainObject;
-  defaults: PlainObject;
-  defaultModel: PlainObject;
-  gateway: PlainObject;
-  models: PlainObject;
-  openaiModels: unknown[];
-  openaiProvider: PlainObject;
-  providers: PlainObject;
-  allowlist?: PlainObject;
 }
 
 export function readManagedGateway(settings: OpenClawConfig, sourceLabel: string): PlainObject | undefined {
   return requirePlainObjectWhenPresent(settings.gateway, MANAGED_SETTINGS_PATHS.gateway, sourceLabel);
 }
 
-export function readManagedSettings(settings: OpenClawConfig, sourceLabel: string): ManagedSettingsSnapshot {
+export function assertManagedSettingsShape(settings: OpenClawConfig, sourceLabel: string): void {
+  void readManagedSettingsSnapshot(settings, sourceLabel);
+}
+
+export function readManagedSettingsSnapshot(settings: OpenClawConfig, sourceLabel: string): ManagedSettingsSnapshot {
   const models = requirePlainObjectWhenPresent(settings.models, MANAGED_SETTINGS_PATHS.models, sourceLabel);
   const providers = requirePlainObjectWhenPresent(models?.providers, MANAGED_SETTINGS_PATHS.providers, sourceLabel);
-  const openaiProvider = requirePlainObjectWhenPresent(
-    providers?.[OPENCLAW_PROVIDER_ID],
-    MANAGED_SETTINGS_PATHS.openaiProvider,
-    sourceLabel
-  );
+  const openaiProvider = readManagedOpenAiProviderSnapshot(providers?.[OPENCLAW_PROVIDER_ID], sourceLabel);
 
   const agents = requirePlainObjectWhenPresent(settings.agents, MANAGED_SETTINGS_PATHS.agents, sourceLabel);
   const defaults = requirePlainObjectWhenPresent(agents?.defaults, MANAGED_SETTINGS_PATHS.defaults, sourceLabel);
-  const defaultModel = requirePlainObjectWhenPresent(defaults?.model, MANAGED_SETTINGS_PATHS.defaultModel, sourceLabel);
+  const defaultModel = readManagedDefaultModelSnapshot(defaults?.model, sourceLabel);
   const allowlist = requirePlainObjectWhenPresent(defaults?.models, MANAGED_SETTINGS_PATHS.allowlist, sourceLabel);
 
   return {
@@ -69,27 +69,40 @@ export function readManagedSettings(settings: OpenClawConfig, sourceLabel: strin
     defaults,
     gateway: readManagedGateway(settings, sourceLabel),
     models,
-    openaiModels: requireArrayWhenPresent(openaiProvider?.models, MANAGED_SETTINGS_PATHS.openaiModels, sourceLabel),
     openaiProvider,
     providers
   };
 }
 
-export function readManagedSettingsForUpdate(settings: OpenClawConfig, sourceLabel: string): ManagedSettingsUpdateState {
-  return toManagedSettingsUpdateState(readManagedSettings(settings, sourceLabel));
+function readManagedOpenAiProviderSnapshot(
+  value: unknown,
+  sourceLabel: string
+): ManagedOpenAiProviderSnapshot | undefined {
+  const raw = requirePlainObjectWhenPresent(value, MANAGED_SETTINGS_PATHS.openaiProvider, sourceLabel);
+
+  if (!raw) {
+    return undefined;
+  }
+
+  return {
+    api: raw.api,
+    apiKey: raw.apiKey,
+    baseUrl: raw.baseUrl,
+    models: requireArrayWhenPresent(raw.models, MANAGED_SETTINGS_PATHS.openaiModels, sourceLabel),
+    raw
+  };
 }
 
-function toManagedSettingsUpdateState(snapshot: ManagedSettingsSnapshot): ManagedSettingsUpdateState {
+function readManagedDefaultModelSnapshot(value: unknown, sourceLabel: string): ManagedDefaultModelSnapshot | undefined {
+  const raw = requirePlainObjectWhenPresent(value, MANAGED_SETTINGS_PATHS.defaultModel, sourceLabel);
+
+  if (!raw) {
+    return undefined;
+  }
+
   return {
-    agents: copyPlainObject(snapshot.agents),
-    defaults: copyPlainObject(snapshot.defaults),
-    defaultModel: copyPlainObject(snapshot.defaultModel),
-    gateway: copyPlainObject(snapshot.gateway),
-    models: copyPlainObject(snapshot.models),
-    openaiModels: snapshot.openaiModels ? [...snapshot.openaiModels] : [],
-    openaiProvider: copyPlainObject(snapshot.openaiProvider),
-    providers: copyPlainObject(snapshot.providers),
-    allowlist: snapshot.allowlist ? { ...snapshot.allowlist } : undefined
+    primary: raw.primary,
+    raw
   };
 }
 

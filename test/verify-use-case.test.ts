@@ -62,6 +62,18 @@ function createVerifyHarness(
       state.configValidationPaths.push(filePath);
       recordStep(state, "validateOpenClawConfig");
     },
+    verifyRuntimeForVerify: (filePath, expectedPrimaryModelRef) => {
+      state.runtimeVerifyCalls += 1;
+      state.runtimeVerifyInputs.push({
+        expectedPrimaryModelRef,
+        filePath
+      });
+      recordStep(state, "verifyRuntime");
+      return {
+        kind: "healthy",
+        resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
+      };
+    },
     ...overrides.openClaw
   };
 
@@ -76,18 +88,6 @@ function createVerifyHarness(
       };
     },
     openClaw,
-    verifyOpenClawRuntimeForVerify: (filePath, expectedPrimaryModelRef) => {
-      state.runtimeVerifyCalls += 1;
-      state.runtimeVerifyInputs.push({
-        expectedPrimaryModelRef,
-        filePath
-      });
-      recordStep(state, "verifyRuntime");
-      return {
-        kind: "healthy",
-        resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
-      };
-    },
     verifySettings: async (filePath) => {
       state.verifyCalls += 1;
       state.verifyPaths.push(filePath);
@@ -110,7 +110,7 @@ function createVerifyHarness(
 test("runVerifyUseCase checks the existing config through the verify ownership seam", async () => {
   const { dependencies, state } = createVerifyHarness();
 
-  await runVerifyUseCase({
+  const result = await runVerifyUseCase({
     targetPath: "/tmp/openclaw.json"
   }, dependencies);
 
@@ -119,6 +119,7 @@ test("runVerifyUseCase checks the existing config through the verify ownership s
   assert.equal(state.configValidationCalls, 1);
   assert.equal(state.verifyCalls, 1);
   assert.equal(state.runtimeVerifyCalls, 1);
+  assert.equal(result.display.sections[0]?.heading, "Verification complete.");
 });
 
 test("runVerifyUseCase uses the resolved target path for validation and runtime verification", async () => {
@@ -141,8 +142,8 @@ test("runVerifyUseCase uses the resolved target path for validation and runtime 
 
 test("runVerifyUseCase stays strict when the Gateway is unavailable", async () => {
   const { dependencies, state } = createVerifyHarness({
-    dependencies: {
-      verifyOpenClawRuntimeForVerify: () => {
+    openClaw: {
+      verifyRuntimeForVerify: () => {
         state.runtimeVerifyCalls += 1;
         recordStep(state, "verifyRuntime");
         throw new Error("gateway offline");
@@ -232,12 +233,12 @@ test("runVerifyUseCase succeeds against a real temp config without mutating it",
       }),
       openClaw: {
         ensureInstalled: () => {},
-        validateConfig: () => {}
+        validateConfig: () => {},
+        verifyRuntimeForVerify: () => ({
+          kind: "healthy",
+          resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
+        })
       },
-      verifyOpenClawRuntimeForVerify: () => ({
-        kind: "healthy",
-        resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
-      }),
       verifySettings: async () => ({
         configMode: 0o600,
         selectedModel: DEFAULT_MODEL
