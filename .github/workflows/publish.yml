@@ -1,0 +1,86 @@
+name: Publish (npm)
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do (check verifies OIDC without publishing)
+        required: true
+        type: choice
+        default: check
+        options:
+          - check
+          - publish
+      publish_ref:
+        description: Git ref to publish (for example tag v0.1.2). Leave empty to publish the workflow ref.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_ref != '' && github.event.inputs.publish_ref || github.ref }}
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm i -g npm@11.5.1
+      - run: npm ci
+      - run: npm run ci
+
+      - name: OIDC preflight (token exchange)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REG=$(npm -s config get registry || :)
+          REG=${REG%/}
+          : "${REG:=https://registry.npmjs.org}"
+
+          HOST=${REG#*://}
+          HOST=${HOST%%/*}
+
+          ID=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=npm:${HOST}" | jq -er .value)
+
+          PKG=$(jq -r '.name|@uri' package.json)
+          curl -fsS -H "Authorization: Bearer $ID" "$REG/-/npm/v1/oidc/token/exchange/package/$PKG" -d "" >/dev/null
+
+          echo "OK: OIDC exchange succeeded for $PKG on $HOST"
+
+      - name: Check whether this version is already published
+        id: publish_check
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'publish')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NAME=$(jq -r '.name' package.json)
+          VERSION=$(jq -r '.version' package.json)
+
+          if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "Package ${NAME}@${VERSION} is already published; skipping publish."
+            echo "should_publish=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "Package ${NAME}@${VERSION} is not published yet; continuing."
+            echo "should_publish=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish
+        if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'publish')) && steps.publish_check.outputs.should_publish == 'true'
+        run: npm publish --provenance --access public

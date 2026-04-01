@@ -1,0 +1,65 @@
+{
+  "skill_name": "node-security-review",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Please do a findings-first security review of this Fastify auth middleware. It reads the bearer token, calls `jwt.decode(token)` to get the payload, and if `jwt.verify` later throws it logs the error and leaves `request.user = { role: 'guest' }` so downstream handlers can decide what to do. Some admin routes only check `request.user?.role === 'admin'`. I do not want a redesign, only the highest-signal security findings.",
+      "expected_output": "A review that identifies unverified token trust and fail-open auth behavior as the primary findings, explains the attacker path, and recommends the smallest fix instead of a broad security rewrite.",
+      "files": [],
+      "expectations": [
+        "The output identifies trusting `jwt.decode()` output before successful verification as a real security finding.",
+        "The output identifies the fallback to guest or continued processing after verification failure as fail-open behavior, not as harmless convenience.",
+        "The output explains a plausible attacker path from forged token input to privileged or misclassified behavior.",
+        "The output stays findings-first and does not turn into a generic JWT best-practices list."
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Security-review this outbound webhook flow. The API accepts `callbackUrl` from the request body, does a regex allow check for `https?://`, then `await fetch(callbackUrl, { redirect: 'follow' })`. If the request throws, we catch it and mark the webhook as 'accepted for retry' anyway so the main operation does not fail. I want the few findings that actually matter.",
+      "expected_output": "A review that centers SSRF and fail-open behavior, checks redirect handling and destination control, and recommends minimal concrete fixes rather than generic outbound-hardening commentary.",
+      "files": [],
+      "expectations": [
+        "The output identifies regex-only URL checking plus attacker-chosen destination as an SSRF or outbound trust-boundary problem.",
+        "The output mentions redirect handling as part of the security posture, not as an optional detail.",
+        "The output flags the retry acceptance path after failed validation or fetch as a fail-open or security-downgrade concern if it preserves unsafe behavior.",
+        "The output does not drift into generic networking or reliability advice without tying it back to the security path."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Review this Node backend bootstrap for security findings. It uses `const jwtSecret = process.env.JWT_SECRET || 'dev-secret'`; starts the server even if `GONKA_PRIVATE_KEY` is missing because 'some routes do not need it'; and the request logger prints `req.headers.authorization` plus the raw webhook body on signature failures. Keep it findings-first and minimal.",
+      "expected_output": "A review that focuses on insecure secret fallback, missing mandatory secret fail-open behavior, and sensitive logging exposure with concrete operational consequences.",
+      "files": [],
+      "expectations": [
+        "The output treats the hardcoded fallback secret on a live code path as a real secret-handling finding.",
+        "The output identifies continuing startup without a mandatory security-critical secret as fail-open behavior.",
+        "The output flags logging raw authorization data or signed webhook payloads as a sensitive exposure path.",
+        "The output keeps the fix recommendations narrow and concrete rather than proposing a broad secret-management program."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I inherited a Fastify service and want an audit-mode security pass, not code changes yet. It has JWT auth, cookie sessions for the admin UI, outbound `fetch` calls to partner URLs stored in the DB, Stripe webhooks, and custom error logging. What should a node-security review inspect first, in what order, and what evidence should it collect before making claims?",
+      "expected_output": "An audit answer that prioritizes auth boundaries, cookie and CORS posture, outbound URL safety, webhook verification, and logging exposure in a concrete inspection order.",
+      "files": [],
+      "expectations": [
+        "The output uses an inspection-first structure rather than a generic security essay.",
+        "The output places auth verification and cookie or session trust near the top of the inspection order.",
+        "The output includes outbound URL handling and webhook signature verification as explicit audit surfaces.",
+        "The output asks for concrete evidence or files to inspect before making confident claims."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Please review this PR snippet for security risk. The app sets auth cookies with `SameSite=None`, `secure: false` when `NODE_ENV !== 'production'`, and enables CORS with `{ origin: true, credentials: true }` because multiple frontends hit the API. The code also assumes the browser will protect us from CSRF. I only want the strongest findings.",
+      "expected_output": "A review that focuses on credentialed CORS and cookie-trust implications, identifies CSRF risk where justified, and avoids turning the answer into a generic browser-security dump.",
+      "files": [],
+      "expectations": [
+        "The output treats cookie configuration and credentialed CORS as one combined trust-boundary problem rather than isolated flags.",
+        "The output does not accept browser behavior alone as proof that CSRF is handled safely.",
+        "The output explains when `SameSite=None` plus credentialed cross-origin requests increases exposure.",
+        "The output stays focused on the few highest-signal findings instead of listing every possible web security header."
+      ]
+    }
+  ]
+}

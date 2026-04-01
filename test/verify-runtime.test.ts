@@ -1,0 +1,123 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { toPrimaryModelRef, DEFAULT_MODEL } from "../src/constants/models.js";
+import {
+  OpenClawRuntimeVerificationError,
+  verifyOpenClawRuntime
+} from "../src/install/verify-runtime.js";
+
+interface StubCommandResult {
+  error?: NodeJS.ErrnoException;
+  status: number | null;
+  stderr?: string;
+  stdout?: string;
+}
+
+function createRunner(results: readonly StubCommandResult[]) {
+  let index = 0;
+
+  return (_command: string, _args: string[]) => {
+    const result = results[index];
+    index += 1;
+
+    if (!result) {
+      throw new Error("Unexpected extra runtime verification command");
+    }
+
+    return {
+      error: result.error,
+      status: result.status,
+      stderr: result.stderr ?? "",
+      stdout: result.stdout ?? ""
+    };
+  };
+}
+
+test("verifyOpenClawRuntime accepts a healthy Gateway, health snapshot, and resolved model", () => {
+  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+
+  const result = verifyOpenClawRuntime(
+    "/tmp/openclaw.json",
+    expectedPrimaryModelRef,
+    createRunner([
+      { status: 0, stdout: '{"rpc":{"ok":true}}' },
+      { status: 0, stdout: '{"ok":true}' },
+      { status: 0, stdout: `${expectedPrimaryModelRef}\n` }
+    ])
+  );
+
+  assert.equal(result.resolvedPrimaryModelRef, expectedPrimaryModelRef);
+});
+
+test("verifyOpenClawRuntime fails clearly when the Gateway RPC probe fails", () => {
+  try {
+    verifyOpenClawRuntime(
+      "/tmp/openclaw.json",
+      toPrimaryModelRef(DEFAULT_MODEL),
+      createRunner([
+        { status: 1, stderr: "rpc failed" }
+      ])
+    );
+    assert.fail("Expected verifyOpenClawRuntime to throw");
+  } catch (error) {
+    assert.ok(error instanceof OpenClawRuntimeVerificationError);
+    assert.equal(error.kind, "gateway_unavailable");
+    assert.match(error.message, /Gateway RPC/);
+  }
+});
+
+test("verifyOpenClawRuntime rejects unhealthy health snapshots", () => {
+  try {
+    verifyOpenClawRuntime(
+      "/tmp/openclaw.json",
+      toPrimaryModelRef(DEFAULT_MODEL),
+      createRunner([
+        { status: 0, stdout: '{"rpc":{"ok":true}}' },
+        { status: 0, stdout: '{"ok":false}' }
+      ])
+    );
+    assert.fail("Expected verifyOpenClawRuntime to throw");
+  } catch (error) {
+    assert.ok(error instanceof OpenClawRuntimeVerificationError);
+    assert.equal(error.kind, "runtime_unhealthy");
+    assert.match(error.message, /unhealthy runtime/);
+  }
+});
+
+test("verifyOpenClawRuntime rejects empty resolved-model output", () => {
+  try {
+    verifyOpenClawRuntime(
+      "/tmp/openclaw.json",
+      toPrimaryModelRef(DEFAULT_MODEL),
+      createRunner([
+        { status: 0, stdout: '{"rpc":{"ok":true}}' },
+        { status: 0, stdout: '{"ok":true}' },
+        { status: 0, stdout: "   \n" }
+      ])
+    );
+    assert.fail("Expected verifyOpenClawRuntime to throw");
+  } catch (error) {
+    assert.ok(error instanceof OpenClawRuntimeVerificationError);
+    assert.equal(error.kind, "model_resolution_failed");
+    assert.match(error.message, /empty response/);
+  }
+});
+
+test("verifyOpenClawRuntime rejects mismatched resolved models", () => {
+  try {
+    verifyOpenClawRuntime(
+      "/tmp/openclaw.json",
+      toPrimaryModelRef(DEFAULT_MODEL),
+      createRunner([
+        { status: 0, stdout: '{"rpc":{"ok":true}}' },
+        { status: 0, stdout: '{"ok":true}' },
+        { status: 0, stdout: "openai/not-the-expected-model\n" }
+      ])
+    );
+    assert.fail("Expected verifyOpenClawRuntime to throw");
+  } catch (error) {
+    assert.ok(error instanceof OpenClawRuntimeVerificationError);
+    assert.equal(error.kind, "model_resolution_failed");
+    assert.match(error.message, /expects/);
+  }
+});

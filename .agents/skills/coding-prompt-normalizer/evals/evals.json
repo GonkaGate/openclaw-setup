@@ -1,0 +1,61 @@
+{
+  "skill_name": "coding-prompt-normalizer",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Turn this into a prompt for Codex. Need a small fix in `src/install/merge-settings.ts` so `agents.defaults.models` only gets merged when it already exists. Preserve unrelated config keys and do not change the public onboarding flow.",
+      "expected_output": "An implementation prompt that preserves the exact literals, points toward merge-settings and nearby tests, and keeps the change small without inventing product changes.",
+      "files": [],
+      "expectations": [
+        "The output clearly frames the task as implementation work rather than review or high-level planning.",
+        "The output preserves `src/install/merge-settings.ts`, `agents.defaults.models`, and the public-flow constraint verbatim.",
+        "The output points toward the most likely relevant test surface without inventing unrelated files.",
+        "The output does not include a generic summary of the whole repository."
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Package this as a review prompt. Read-only. I think `src/install/verify-runtime.ts` may be too optimistic around `openclaw gateway status --require-rpc --json`. Need findings first, severity ordered, file anchors, focus on correctness not style.",
+      "expected_output": "A read-only review prompt that keeps the runtime command literal intact, asks for findings first with severity and file anchors, and points toward runtime verification code and tests.",
+      "files": [],
+      "expectations": [
+        "The output clearly frames the task as read-only review and explicitly says not to edit files.",
+        "The output asks for findings first, ordered by severity, with file or line anchors.",
+        "The output preserves `src/install/verify-runtime.ts` and `openclaw gateway status --require-rpc --json` verbatim."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Please normalize this for an agent: first-run installs sometimes behave weirdly around `openclaw setup` and `gateway.mode`, but I am not sure whether the issue is bootstrap or write flow. Investigate first, do not jump straight to a patch.",
+      "expected_output": "A bug-investigation prompt that keeps the exact literals, treats the issue as investigation first, and points toward first-run bootstrap and write surfaces without forcing a fix too early.",
+      "files": [],
+      "expectations": [
+        "The output frames the task as bug investigation or root-cause analysis rather than immediate implementation.",
+        "The output preserves `openclaw setup` and `gateway.mode` verbatim.",
+        "The output points toward bootstrap and write surfaces without claiming a confirmed owner too early."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Rewrite this into a clean planning prompt: maybe let users customize `models.providers.openai.baseUrl` or switch provider away from `openai`, but do not pretend this is a small refactor if it changes product contract.",
+      "expected_output": "A planning or architecture prompt that treats the request as a product-contract change, preserves the config key and provider literal, and avoids presenting it as a direct implementation task.",
+      "files": [],
+      "expectations": [
+        "The output treats the request as planning, spec, or architecture analysis rather than a direct coding prompt.",
+        "The output preserves `models.providers.openai.baseUrl` and `openai` verbatim.",
+        "The output explicitly recognizes that this touches product invariants rather than a small local refactor."
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Make this into a docs prompt. If installer behavior changed, update `README.md`, `docs/how-it-works.md`, and `AGENTS.md` so they stay truthful. Do not invent a new public flow.",
+      "expected_output": "A docs-and-messaging prompt that keeps the exact file literals, emphasizes truthfulness, and avoids inventing unimplemented user-facing behavior.",
+      "files": [],
+      "expectations": [
+        "The output frames the task as documentation or messaging work.",
+        "The output preserves `README.md`, `docs/how-it-works.md`, and `AGENTS.md` verbatim.",
+        "The output explicitly avoids inventing a new public flow."
+      ]
+    }
+  ]
+}
