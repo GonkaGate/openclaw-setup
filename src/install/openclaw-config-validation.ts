@@ -4,6 +4,12 @@ import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import type { OpenClawConfig } from "../types/settings.js";
+import {
+  formatOpenClawCommandOutput,
+  normalizeOpenClawCommandResult,
+  throwIfOpenClawCommandErrored,
+  type OpenClawCommandResult
+} from "./openclaw-command.js";
 
 interface OpenClawValidationIssue {
   message?: string;
@@ -16,12 +22,7 @@ interface OpenClawValidationReport {
   valid?: boolean;
 }
 
-export interface ValidationCommandResult {
-  error?: NodeJS.ErrnoException;
-  status: number | null;
-  stderr: string;
-  stdout: string;
-}
+export type ValidationCommandResult = OpenClawCommandResult;
 
 export type ValidationCommandRunner = (command: string, args: string[], configPath: string) => ValidationCommandResult;
 
@@ -53,14 +54,7 @@ export function validateOpenClawConfig(
   runCommand: ValidationCommandRunner = runValidationCommand
 ): void {
   const result = runCommand("openclaw", ["config", "validate", "--json"], filePath);
-
-  if (result.error?.code === "ENOENT") {
-    throw new Error("OpenClaw CLI was not found in PATH. Install OpenClaw first, then rerun this installer.");
-  }
-
-  if (result.error) {
-    throw result.error;
-  }
+  throwIfOpenClawCommandErrored(result);
 
   const report = parseValidationReport(result.stdout);
 
@@ -76,21 +70,14 @@ export function validateOpenClawConfig(
 }
 
 function runValidationCommand(command: string, args: string[], configPath: string): ValidationCommandResult {
-  const result = spawnSync(command, args, {
+  return normalizeOpenClawCommandResult(spawnSync(command, args, {
     encoding: "utf8",
     env: {
       ...process.env,
       OPENCLAW_CONFIG_PATH: configPath
     },
     stdio: "pipe"
-  });
-
-  return {
-    error: result.error ?? undefined,
-    status: result.status,
-    stderr: result.stderr ?? "",
-    stdout: result.stdout ?? ""
-  };
+  }));
 }
 
 function parseValidationReport(stdout: string): OpenClawValidationReport | undefined {
@@ -130,7 +117,7 @@ function formatIssue(issue: OpenClawValidationIssue): string {
 }
 
 function formatValidationCommandFailure(filePath: string, result: ValidationCommandResult): string {
-  const output = [result.stdout.trim(), result.stderr.trim()].filter((chunk) => chunk.length > 0).join("\n");
+  const output = formatOpenClawCommandOutput(result);
   const outputSuffix = output.length > 0 ? `\n\nOpenClaw output:\n${output}` : "";
 
   return (

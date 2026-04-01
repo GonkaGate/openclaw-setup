@@ -7,7 +7,8 @@ import {
 } from "../constants/models.js";
 import type { SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import { isPlainObject } from "./object-utils.js";
+import { getManagedSettingsSurface, type ManagedSettingsSurface } from "./managed-settings-surface.js";
+import { asPlainObject } from "./object-utils.js";
 import { validateApiKey } from "./validate-api-key.js";
 
 export interface VerifySettingsResult {
@@ -16,12 +17,13 @@ export interface VerifySettingsResult {
 }
 
 export async function verifySettings(filePath: string, settings: OpenClawConfig): Promise<VerifySettingsResult> {
-  const provider = getManagedOpenAIProvider(settings, filePath);
+  const surface = getManagedSettingsSurface(settings);
+  const provider = getManagedOpenAIProvider(surface, filePath);
   const baseUrl = requireNonEmptyString(provider.baseUrl, "models.providers.openai.baseUrl", filePath);
   const api = requireNonEmptyString(provider.api, "models.providers.openai.api", filePath);
   const apiKey = requireNonEmptyString(provider.apiKey, "models.providers.openai.apiKey", filePath);
   requireArray(provider.models, "models.providers.openai.models", filePath);
-  const primaryModelRef = getPrimaryModelRef(settings, filePath);
+  const primaryModelRef = getPrimaryModelRef(surface, filePath);
 
   if (baseUrl !== GONKAGATE_OPENAI_BASE_URL) {
     throw new Error(
@@ -47,7 +49,7 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
     throw new Error(`Expected "agents.defaults.model.primary" in ${filePath} to be one of: ${allowedRefs}.`);
   }
 
-  verifyModelAllowlistWhenPresent(settings, filePath, selectedModel, primaryModelRef);
+  verifyModelAllowlistWhenPresent(surface, filePath, selectedModel, primaryModelRef);
 
   const configMode = (await stat(filePath)).mode & 0o777;
 
@@ -65,45 +67,33 @@ export function formatUnixMode(mode: number): string {
   return `0o${mode.toString(8).padStart(3, "0")}`;
 }
 
-function getManagedOpenAIProvider(settings: OpenClawConfig, filePath: string): Record<string, unknown> {
-  const models = isPlainObject(settings.models) ? settings.models : undefined;
-  const providers = isPlainObject(models?.providers) ? models.providers : undefined;
-  const openaiProvider = isPlainObject(providers?.[OPENCLAW_PROVIDER_ID]) ? providers[OPENCLAW_PROVIDER_ID] : undefined;
-
-  if (!openaiProvider) {
+function getManagedOpenAIProvider(surface: ManagedSettingsSurface, filePath: string): Record<string, unknown> {
+  if (!surface.openaiProvider) {
     throw new Error(
       `Expected "models.providers.${OPENCLAW_PROVIDER_ID}" in ${filePath} to exist. Run "npx @gonkagate/openclaw" to apply GonkaGate settings.`
     );
   }
 
-  return openaiProvider;
+  return surface.openaiProvider;
 }
 
-function getPrimaryModelRef(settings: OpenClawConfig, filePath: string): string {
-  const agents = isPlainObject(settings.agents) ? settings.agents : undefined;
-  const defaults = isPlainObject(agents?.defaults) ? agents.defaults : undefined;
-  const model = isPlainObject(defaults?.model) ? defaults.model : undefined;
-
-  return requireNonEmptyString(model?.primary, "agents.defaults.model.primary", filePath);
+function getPrimaryModelRef(surface: ManagedSettingsSurface, filePath: string): string {
+  return requireNonEmptyString(surface.defaultModel?.primary, "agents.defaults.model.primary", filePath);
 }
 
 function verifyModelAllowlistWhenPresent(
-  settings: OpenClawConfig,
+  surface: ManagedSettingsSurface,
   filePath: string,
   selectedModel: SupportedModel,
   primaryModelRef: string
 ): void {
-  const agents = isPlainObject(settings.agents) ? settings.agents : undefined;
-  const defaults = isPlainObject(agents?.defaults) ? agents.defaults : undefined;
-  const allowlist = isPlainObject(defaults?.models) ? defaults.models : undefined;
-
-  if (!allowlist) {
+  if (!surface.allowlist) {
     return;
   }
 
-  const allowlistEntry = allowlist[primaryModelRef];
+  const allowlistEntry = asPlainObject(surface.allowlist[primaryModelRef]);
 
-  if (!isPlainObject(allowlistEntry)) {
+  if (!allowlistEntry) {
     throw new Error(
       `Expected "agents.defaults.models.${primaryModelRef}" in ${filePath} to exist when "agents.defaults.models" is present.`
     );

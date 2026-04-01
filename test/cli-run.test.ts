@@ -4,7 +4,6 @@ import path from "node:path";
 import test from "node:test";
 import { parseCliOptions, parseCliRequest, run } from "../src/cli.js";
 import { DEFAULT_MODEL, DEFAULT_MODEL_KEY, toPrimaryModelRef } from "../src/constants/models.js";
-import { OpenClawRuntimeVerificationError } from "../src/install/verify-runtime.js";
 import { getSettingsTarget } from "../src/install/settings-paths.js";
 import { createTempFilePath, withCapturedConsoleLog, withMutedConsoleLog } from "./test-helpers.js";
 
@@ -14,6 +13,23 @@ const silentOutput = {
 };
 
 type RunDependencies = NonNullable<Parameters<typeof run>[1]>;
+
+function createHealthyRuntimeResult() {
+  return {
+    resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
+    status: "healthy" as const
+  };
+}
+
+function createRuntimeFailureResult(
+  status: "gateway_unavailable" | "runtime_unhealthy" | "model_resolution_failed",
+  message: string
+) {
+  return {
+    message,
+    status
+  };
+}
 
 interface RunHarnessState {
   backupCalls: number;
@@ -143,9 +159,7 @@ function createRunHarness(overrides: Partial<RunDependencies> = {}): {
         filePath
       });
       state.order.push("verifyRuntime");
-      return {
-        resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
-      };
+      return createHealthyRuntimeResult();
     },
     verifySettings: async (filePath) => {
       state.verifyCalls += 1;
@@ -212,8 +226,7 @@ test("run initializes missing OpenClaw config automatically and skips backup on 
 
         if (loadCount === 1) {
           return {
-            exists: false,
-            settings: {}
+            exists: false
           };
         }
 
@@ -248,9 +261,7 @@ test("run initializes missing OpenClaw config automatically and skips backup on 
       validateApiKey: (apiKey) => apiKey,
       validateOpenClawConfig: () => {},
       validateSettingsBeforeWrite: async () => {},
-      verifyOpenClawRuntime: () => {
-        throw new OpenClawRuntimeVerificationError("gateway_unavailable", "gateway offline");
-      },
+      verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline"),
       writeSettings: async (_filePath, settings) => {
         writtenSettings = settings as Record<string, unknown>;
       }
@@ -306,8 +317,7 @@ test("run preserves an existing gateway.mode from fresh OpenClaw setup output", 
 
           if (loadCount === 1) {
             return {
-              exists: false,
-              settings: {}
+              exists: false
             };
           }
 
@@ -331,9 +341,7 @@ test("run preserves an existing gateway.mode from fresh OpenClaw setup output", 
       validateApiKey: (apiKey) => apiKey,
       validateOpenClawConfig: () => {},
       validateSettingsBeforeWrite: async () => {},
-      verifyOpenClawRuntime: () => {
-        throw new OpenClawRuntimeVerificationError("gateway_unavailable", "gateway offline");
-      },
+      verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline"),
       writeSettings: async (_filePath, settings) => {
         writtenSettings = settings as Record<string, unknown>;
       }
@@ -362,9 +370,7 @@ test("run does not rewrite gateway.mode for existing configs", async () => {
         }
       };
     },
-    verifyOpenClawRuntime: () => {
-      throw new OpenClawRuntimeVerificationError("gateway_unavailable", "gateway offline");
-    }
+    verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline")
   });
 
   await withMutedConsoleLog(async () => {
@@ -423,9 +429,7 @@ test("run install uses the resolved target path from OpenClaw env precedence", a
 
 test("run succeeds after writing a config when the Gateway is not running yet and prints one exact next command", async () => {
   const { dependencies } = createRunHarness({
-    verifyOpenClawRuntime: () => {
-      throw new OpenClawRuntimeVerificationError("gateway_unavailable", "gateway offline");
-    }
+    verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline")
   });
 
   const { logs } = await withCapturedConsoleLog(async () => {
@@ -439,36 +443,30 @@ test("run succeeds after writing a config when the Gateway is not running yet an
 });
 
 test("run fails after writing when the Gateway is reachable but unhealthy", async () => {
-  const failure = new OpenClawRuntimeVerificationError("runtime_unhealthy", "health failed");
   const { dependencies, state } = createRunHarness({
-    verifyOpenClawRuntime: () => {
-      throw failure;
-    }
+    verifyOpenClawRuntime: () => createRuntimeFailureResult("runtime_unhealthy", "health failed")
   });
 
   await assert.rejects(
     withMutedConsoleLog(async () => {
       await run([], dependencies);
     }),
-    (error) => error === failure
+    /health failed/
   );
 
   assert.equal(state.writeCalls, 1);
 });
 
 test("run fails after writing when the resolved model does not match the saved config", async () => {
-  const failure = new OpenClawRuntimeVerificationError("model_resolution_failed", "resolved wrong model");
   const { dependencies, state } = createRunHarness({
-    verifyOpenClawRuntime: () => {
-      throw failure;
-    }
+    verifyOpenClawRuntime: () => createRuntimeFailureResult("model_resolution_failed", "resolved wrong model")
   });
 
   await assert.rejects(
     withMutedConsoleLog(async () => {
       await run([], dependencies);
     }),
-    (error) => error === failure
+    /resolved wrong model/
   );
 
   assert.equal(state.writeCalls, 1);
@@ -548,12 +546,11 @@ test("run verify uses the resolved target path from OpenClaw env precedence", as
 });
 
 test("run verify stays strict when the Gateway is unavailable", async () => {
-  const failure = new OpenClawRuntimeVerificationError("gateway_unavailable", "gateway offline");
   const { dependencies, state } = createRunHarness({
     verifyOpenClawRuntime: () => {
       state.runtimeVerifyCalls += 1;
       state.order.push("verifyRuntime");
-      throw failure;
+      return createRuntimeFailureResult("gateway_unavailable", "gateway offline");
     }
   });
 
@@ -561,7 +558,7 @@ test("run verify stays strict when the Gateway is unavailable", async () => {
     withMutedConsoleLog(async () => {
       await run(["verify"], dependencies);
     }),
-    (error) => error === failure
+    /gateway offline/
   );
 
   assert.equal(state.verifyCalls, 1);
@@ -598,8 +595,7 @@ test("run verify fails clearly when the OpenClaw config does not exist yet", asy
       state.loadCalls += 1;
       state.order.push("load");
       return {
-        exists: false,
-        settings: {}
+        exists: false
       };
     }
   });
@@ -659,7 +655,8 @@ test("run verify succeeds against a real temp config without mutating it", async
       }),
       validateOpenClawConfig: () => {},
       verifyOpenClawRuntime: () => ({
-        resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
+        resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
+        status: "healthy"
       })
     });
   });
@@ -685,8 +682,7 @@ test("run surfaces a clear error when OpenClaw setup does not create the config"
         loadSettings: async () => {
           loadCount += 1;
           return {
-            exists: false,
-            settings: {}
+            exists: false
           };
         },
         promptForApiKey: async () => {

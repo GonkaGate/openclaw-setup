@@ -34,6 +34,9 @@ test("loadSettings accepts JSON5 comments and trailing commas", async () => {
   const loaded = await loadSettings(filePath);
 
   assert.equal(loaded.exists, true);
+  if (!loaded.exists) {
+    assert.fail("Expected loadSettings to return parsed settings");
+  }
   assert.deepEqual(loaded.settings, {
     models: {
       providers: {
@@ -165,6 +168,9 @@ test("loadSettings accepts configs that omit optional managed objects", async ()
   const loaded = await loadSettings(filePath);
 
   assert.equal(loaded.exists, true);
+  if (!loaded.exists) {
+    assert.fail("Expected loadSettings to return parsed settings");
+  }
   assert.deepEqual(loaded.settings, {
     gateway: {
       reload: {
@@ -183,6 +189,7 @@ test("loadSettings returns exists=false when the config file is missing", async 
 
   const loaded = await loadSettings(filePath);
 
-  assert.equal(loaded.exists, false);
-  assert.deepEqual(loaded.settings, {});
+  assert.deepEqual(loaded, {
+    exists: false
+  });
 });

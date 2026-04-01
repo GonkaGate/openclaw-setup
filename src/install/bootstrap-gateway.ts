@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "../types/settings.js";
-import { isPlainObject } from "./object-utils.js";
+import { getManagedSettingsSurface } from "./managed-settings-surface.js";
+import { clonePlainObject } from "./object-utils.js";
 
 export interface FreshInstallGatewayBootstrapResult {
   configuredLocalMode: boolean;
@@ -7,7 +8,7 @@ export interface FreshInstallGatewayBootstrapResult {
 }
 
 export function ensureFreshInstallLocalGateway(settings: OpenClawConfig): FreshInstallGatewayBootstrapResult {
-  const existingGateway = isPlainObject(settings.gateway) ? { ...settings.gateway } : {};
+  const existingGateway = clonePlainObject(getManagedSettingsSurface(settings).gateway);
   const existingMode = typeof existingGateway.mode === "string" && existingGateway.mode.trim().length > 0
     ? existingGateway.mode
     : undefined;

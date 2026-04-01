@@ -25,12 +25,12 @@ import { promptForApiKey as promptForApiKeyImpl, promptForModel as promptForMode
 import { getSettingsTarget as getSettingsTargetImpl } from "./install/settings-paths.js";
 import { validateApiKey as validateApiKeyImpl } from "./install/validate-api-key.js";
 import { formatUnixMode, verifySettings as verifySettingsImpl } from "./install/verify-settings.js";
-import {
-  OpenClawRuntimeVerificationError,
-  verifyOpenClawRuntime as verifyOpenClawRuntimeImpl
-} from "./install/verify-runtime.js";
+import { verifyOpenClawRuntime as verifyOpenClawRuntimeImpl } from "./install/verify-runtime.js";
 import { writeSettings as writeSettingsImpl } from "./install/write-settings.js";
 import type { SupportedModel, SupportedModelKey } from "./constants/models.js";
+import type { ExistingSettingsResult, LoadSettingsResult } from "./install/load-settings.js";
+import type { VerifyRuntimeResult } from "./install/verify-runtime.js";
+import type { OpenClawConfig } from "./types/settings.js";
 
 interface CliOptions {
   modelKey?: SupportedModelKey;
@@ -47,6 +47,11 @@ interface ParsedProgramOptions {
 interface ProgramOutput {
   writeOut?: (str: string) => void;
   writeErr?: (str: string) => void;
+}
+
+interface CliHandlers {
+  onInstall: (options: ParsedProgramOptions) => void;
+  onVerify: () => void;
 }
 
 interface CliDependencies {
@@ -78,10 +83,24 @@ interface GatewayUnavailableInstallRuntimeResult {
 
 type InstallRuntimeResult = HealthyInstallRuntimeResult | GatewayUnavailableInstallRuntimeResult;
 
-interface InstallResult {
-  backupPath?: string;
+interface ExistingConfigPreparationResult {
+  backupRequired: true;
+  settings: OpenClawConfig;
+  status: "existing_config";
+}
+
+interface FreshConfigPreparationResult {
+  backupRequired: false;
   configuredLocalGatewayMode: boolean;
-  initializedBaseConfig: boolean;
+  settings: OpenClawConfig;
+  status: "fresh_config";
+}
+
+type InstallConfigPreparationResult = ExistingConfigPreparationResult | FreshConfigPreparationResult;
+
+interface InstallOutcome {
+  backupPath?: string;
+  configPreparation: InstallConfigPreparationResult;
   runtime: InstallRuntimeResult;
 }
 
@@ -108,7 +127,7 @@ function rejectApiKeyArgs(argv: string[]): void {
   }
 }
 
-function createProgram(request: CliRequest, output?: ProgramOutput): Command {
+function createProgram(handlers: CliHandlers, output?: ProgramOutput): Command {
   const supportedModelLines = SUPPORTED_MODELS.map((model) => {
     const defaultSuffix = model.key === DEFAULT_MODEL_KEY ? " (default)" : "";
     return `  ${model.key}  ${model.displayName}${defaultSuffix}`;
@@ -120,10 +139,7 @@ function createProgram(request: CliRequest, output?: ProgramOutput): Command {
     .addOption(
       new Option("--model <model-key>", "Skip the model prompt with a curated supported model.").choices(SUPPORTED_MODEL_KEYS)
     )
-    .action((options: ParsedProgramOptions) => {
-      request.command = "install";
-      request.modelKey = options.model;
-    })
+    .action(handlers.onInstall)
     .helpOption("-h, --help", "Show this help.")
     .version("0.1.0", "-v, --version", "Show the package version.")
     .addHelpText(
@@ -143,9 +159,7 @@ ${supportedModelLines}
   program
     .command("verify")
     .description("Check that OpenClaw is configured correctly for GonkaGate.")
-    .action(() => {
-      request.command = "verify";
-    });
+    .action(handlers.onVerify);
 
   if (output) {
     program.configureOutput(output);
@@ -157,10 +171,25 @@ ${supportedModelLines}
 export function parseCliRequest(argv: string[], output?: ProgramOutput): CliRequest {
   rejectApiKeyArgs(argv);
 
-  const request: CliRequest = {
+  let request: CliRequest = {
     command: "install"
   };
-  const program = createProgram(request, output);
+  const program = createProgram(
+    {
+      onInstall: (options) => {
+        request = {
+          command: "install",
+          modelKey: options.model
+        };
+      },
+      onVerify: () => {
+        request = {
+          command: "verify"
+        };
+      }
+    },
+    output
+  );
   program.parse(["node", "gonkagate-openclaw", ...argv]);
 
   return request;
@@ -186,16 +215,16 @@ function printMissingConfigSetup(targetPath: string): void {
   console.log('Running "openclaw setup" once to initialize the base config and workspace before applying GonkaGate settings.\n');
 }
 
-function printSuccess(targetPath: string, selectedModel: SupportedModel, result: InstallResult): void {
+function printSuccess(targetPath: string, selectedModel: SupportedModel, result: InstallOutcome): void {
   console.log("\nInstall complete.\n");
   console.log(`Config: ${targetPath}`);
   console.log(`Model: ${selectedModel.displayName} (${selectedModel.modelId})`);
 
-  if (result.initializedBaseConfig) {
+  if (result.configPreparation.status === "fresh_config") {
     console.log("Base setup: initialized automatically with OpenClaw defaults");
   }
 
-  if (result.configuredLocalGatewayMode) {
+  if (result.configPreparation.status === "fresh_config" && result.configPreparation.configuredLocalGatewayMode) {
     console.log('Gateway mode: set to "local" for first-run local startup');
   }
 
@@ -252,31 +281,7 @@ async function runInstall(
 ): Promise<void> {
   printIntro(targetPath);
   cliDependencies.ensureOpenClawInstalled();
-
-  const initialLoad = await cliDependencies.loadSettings(targetPath);
-  let loaded = initialLoad;
-  let initializedBaseConfig = false;
-  let configuredLocalGatewayMode = false;
-
-  if (!initialLoad.exists) {
-    printMissingConfigSetup(targetPath);
-    cliDependencies.initializeOpenClawBaseConfig();
-    loaded = await cliDependencies.loadSettings(targetPath);
-    initializedBaseConfig = true;
-
-    if (!loaded.exists) {
-      throw new Error(
-        `OpenClaw setup completed but did not create ${targetPath}. Run "openclaw setup" manually, then rerun this installer.`
-      );
-    }
-
-    const gatewayBootstrap = cliDependencies.ensureFreshInstallLocalGateway(loaded.settings);
-    loaded = {
-      ...loaded,
-      settings: gatewayBootstrap.settings
-    };
-    configuredLocalGatewayMode = gatewayBootstrap.configuredLocalMode;
-  }
+  const configPreparation = await prepareInstallConfig(targetPath, cliDependencies);
 
   cliDependencies.validateOpenClawConfig(targetPath);
 
@@ -284,16 +289,17 @@ async function runInstall(
   const selectedModel = options.modelKey
     ? requireSupportedModel(options.modelKey)
     : await cliDependencies.promptForModel(SUPPORTED_MODELS, DEFAULT_MODEL_KEY);
-  const mergedSettings = mergeSettingsWithGonkaGate(loaded.settings, apiKey, selectedModel);
+  const mergedSettings = mergeSettingsWithGonkaGate(configPreparation.settings, apiKey, selectedModel);
   await cliDependencies.validateSettingsBeforeWrite(targetPath, mergedSettings);
-  const backupPath = initialLoad.exists ? await cliDependencies.createBackup(targetPath) : undefined;
+  const backupPath = configPreparation.backupRequired ? await cliDependencies.createBackup(targetPath) : undefined;
 
   await cliDependencies.writeSettings(targetPath, mergedSettings);
-  const runtime = verifyInstallRuntime(targetPath, toPrimaryModelRef(selectedModel), cliDependencies.verifyOpenClawRuntime);
+  const runtime = toInstallRuntimeResult(
+    cliDependencies.verifyOpenClawRuntime(targetPath, toPrimaryModelRef(selectedModel))
+  );
   printSuccess(targetPath, selectedModel, {
     backupPath,
-    configuredLocalGatewayMode,
-    initializedBaseConfig,
+    configPreparation,
     runtime
   });
 }
@@ -311,30 +317,69 @@ async function runVerify(targetPath: string, cliDependencies: CliDependencies): 
   cliDependencies.validateOpenClawConfig(targetPath);
   const result = await cliDependencies.verifySettings(targetPath, loaded.settings);
   const runtimeResult = cliDependencies.verifyOpenClawRuntime(targetPath, toPrimaryModelRef(result.selectedModel));
+
+  if (runtimeResult.status !== "healthy") {
+    throw new Error(runtimeResult.message);
+  }
+
   printVerifySuccess(targetPath, result.selectedModel, result.configMode, runtimeResult.resolvedPrimaryModelRef);
 }
 
-function verifyInstallRuntime(
+async function prepareInstallConfig(
   targetPath: string,
-  expectedPrimaryModelRef: string,
-  verifyOpenClawRuntime: CliDependencies["verifyOpenClawRuntime"]
-): InstallRuntimeResult {
-  try {
-    const result = verifyOpenClawRuntime(targetPath, expectedPrimaryModelRef);
+  cliDependencies: CliDependencies
+): Promise<InstallConfigPreparationResult> {
+  const initialLoad = await cliDependencies.loadSettings(targetPath);
+
+  if (initialLoad.exists) {
     return {
-      resolvedPrimaryModelRef: result.resolvedPrimaryModelRef,
+      backupRequired: true,
+      settings: initialLoad.settings,
+      status: "existing_config"
+    };
+  }
+
+  printMissingConfigSetup(targetPath);
+  cliDependencies.initializeOpenClawBaseConfig();
+
+  const bootstrappedLoad = await cliDependencies.loadSettings(targetPath);
+  const loadedSettings = requireExistingSettings(targetPath, bootstrappedLoad);
+  const gatewayBootstrap = cliDependencies.ensureFreshInstallLocalGateway(loadedSettings.settings);
+
+  return {
+    backupRequired: false,
+    configuredLocalGatewayMode: gatewayBootstrap.configuredLocalMode,
+    settings: gatewayBootstrap.settings,
+    status: "fresh_config"
+  };
+}
+
+function requireExistingSettings(targetPath: string, loaded: LoadSettingsResult): ExistingSettingsResult {
+  if (!loaded.exists) {
+    throw new Error(
+      `OpenClaw setup completed but did not create ${targetPath}. Run "openclaw setup" manually, then rerun this installer.`
+    );
+  }
+
+  return loaded;
+}
+
+function toInstallRuntimeResult(runtimeResult: VerifyRuntimeResult): InstallRuntimeResult {
+  if (runtimeResult.status === "healthy") {
+    return {
+      resolvedPrimaryModelRef: runtimeResult.resolvedPrimaryModelRef,
       status: "healthy"
     };
-  } catch (error) {
-    if (error instanceof OpenClawRuntimeVerificationError && error.kind === "gateway_unavailable") {
-      return {
-        nextCommand: "openclaw gateway",
-        status: "gateway_unavailable"
-      };
-    }
-
-    throw error;
   }
+
+  if (runtimeResult.status === "gateway_unavailable") {
+    return {
+      nextCommand: "openclaw gateway",
+      status: "gateway_unavailable"
+    };
+  }
+
+  throw new Error(runtimeResult.message);
 }
 
 export async function run(argv = process.argv.slice(2), dependencies: Partial<CliDependencies> = {}): Promise<void> {
