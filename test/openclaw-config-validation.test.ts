@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
+import {
+  INSTALL_ERROR_CODE,
+  TemporaryCandidateCleanupError
+} from "../src/install/install-errors.js";
 import { validateOpenClawConfig, validateSettingsBeforeWrite } from "../src/install/openclaw-config-validation.js";
 import { createTempFilePath } from "./test-helpers.js";
 
@@ -117,4 +121,64 @@ test("validateSettingsBeforeWrite awaits async validators before removing the ca
 
   assert.ok(candidatePath);
   assert.equal(existsSync(candidatePath!), false);
+});
+
+test("validateSettingsBeforeWrite preserves the primary validation error when cleanup also fails", async () => {
+  const targetPath = await createTempFilePath("openclaw-prewrite-validation-cleanup-");
+  const validationFailure = new Error("candidate config rejected");
+
+  await assert.rejects(
+    validateSettingsBeforeWrite(
+      targetPath,
+      {
+        gateway: {
+          mode: "local"
+        }
+      },
+      async () => {
+        throw validationFailure;
+      },
+      {
+        chmodFile: async () => undefined,
+        createDirectory: async () => undefined,
+        removeFile: async () => {
+          throw new Error("cleanup failed");
+        },
+        writeCandidateFile: async () => undefined
+      }
+    ),
+    (error) => error === validationFailure
+  );
+});
+
+test("validateSettingsBeforeWrite reports cleanup failures when validation itself succeeded", async () => {
+  const targetPath = await createTempFilePath("openclaw-prewrite-validation-cleanup-only-");
+  const cleanupFailure = new Error("permission denied");
+
+  await assert.rejects(
+    validateSettingsBeforeWrite(
+      targetPath,
+      {
+        gateway: {
+          mode: "local"
+        }
+      },
+      async () => undefined,
+      {
+        chmodFile: async () => undefined,
+        createDirectory: async () => undefined,
+        removeFile: async () => {
+          throw cleanupFailure;
+        },
+        writeCandidateFile: async () => undefined
+      }
+    ),
+    (error) => {
+      assert.ok(error instanceof TemporaryCandidateCleanupError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.temporaryCandidateCleanupFailed);
+      assert.equal(error.cause, cleanupFailure);
+      assert.match(error.message, /temporary OpenClaw config candidate/);
+      return true;
+    }
+  );
 });

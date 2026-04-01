@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import test from "node:test";
+import { INSTALL_ERROR_CODE, SettingsParseError } from "../src/install/install-errors.js";
 import { loadSettings } from "../src/install/load-settings.js";
 import { createTempFilePath } from "./test-helpers.js";
 
@@ -9,7 +10,18 @@ test("loadSettings parses JSON5 and rejects invalid JSON5 instead of overwriting
 
   await writeFile(filePath, "{broken: [}", "utf8");
 
-  await assert.rejects(loadSettings(filePath), /Failed to parse JSON5/);
+  await assert.rejects(
+    loadSettings(filePath),
+    (error) => {
+      assert.ok(error instanceof SettingsParseError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.settingsParseFailed);
+      assert.match(error.message, /Failed to parse JSON5/);
+      assert.match(error.message, /Parser detail: JSON5: invalid character/);
+      assert.ok(error.cause instanceof Error);
+      assert.match(error.cause.message, /1:11/);
+      return true;
+    }
+  );
 });
 
 test("loadSettings accepts JSON5 comments and trailing commas", async () => {

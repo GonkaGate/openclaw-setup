@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { toPrimaryModelRef, DEFAULT_MODEL } from "../src/constants/models.js";
+import { INSTALL_ERROR_CODE, RuntimeVerificationError } from "../src/install/install-errors.js";
 import {
   verifyOpenClawRuntime,
   verifyOpenClawRuntimeForInstall,
@@ -204,7 +205,15 @@ test("verifyOpenClawRuntimeForInstall keeps malformed gateway status output stri
           { status: 0, stdout: "not json" }
         ])
       ),
-    /Unable to interpret/
+    (error) => {
+      assert.ok(error instanceof RuntimeVerificationError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);
+      assert.equal(error.kind, "unexpected_output");
+      assert.equal(error.phase, "install");
+      assert.match(error.message, /Unable to interpret/);
+      assert.match(error.message, /settings were written successfully/);
+      return true;
+    }
   );
 });
 
@@ -219,7 +228,15 @@ test("verifyOpenClawRuntimeForInstall rethrows strict runtime failures for insta
           { status: 0, stdout: '{"ok":false}' }
         ])
       ),
-    /unhealthy runtime/
+    (error) => {
+      assert.ok(error instanceof RuntimeVerificationError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);
+      assert.equal(error.kind, "runtime_unhealthy");
+      assert.equal(error.phase, "install");
+      assert.match(error.message, /unhealthy runtime/);
+      assert.match(error.message, /settings were written successfully/);
+      return true;
+    }
   );
 });
 
@@ -233,7 +250,15 @@ test("verifyOpenClawRuntimeForVerify keeps verify strict for every non-healthy r
           { status: 1, stderr: "rpc failed" }
         ])
       ),
-    /Gateway RPC/
+    (error) => {
+      assert.ok(error instanceof RuntimeVerificationError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);
+      assert.equal(error.kind, "gateway_unavailable");
+      assert.equal(error.phase, "verify");
+      assert.match(error.message, /Gateway RPC/);
+      assert.doesNotMatch(error.message, /settings were written successfully/);
+      return true;
+    }
   );
 });
 
@@ -281,9 +306,19 @@ test("verifyOpenClawRuntimeForInstall rethrows every strict failure kind except 
 
     assert.throws(
       () => verifyOpenClawRuntimeForInstall("/tmp/openclaw.json", toPrimaryModelRef(DEFAULT_MODEL), runner),
-      kind === "unexpected_output" ? /Unable to interpret/
-        : kind === "runtime_unhealthy" ? /unhealthy runtime/
-          : /expects/
+      (error) => {
+        assert.ok(error instanceof RuntimeVerificationError);
+        assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);
+        assert.equal(error.kind, kind);
+        assert.equal(error.phase, "install");
+        assert.match(
+          error.message,
+          kind === "unexpected_output" ? /Unable to interpret/
+            : kind === "runtime_unhealthy" ? /unhealthy runtime/
+              : /expects/
+        );
+        return true;
+      }
     );
   }
 });

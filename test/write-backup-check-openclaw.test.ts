@@ -4,6 +4,11 @@ import path from "node:path";
 import test from "node:test";
 import { createBackup } from "../src/install/backup.js";
 import { ensureOpenClawInstalled, initializeOpenClawBaseConfig } from "../src/install/check-openclaw.js";
+import {
+  INSTALL_ERROR_CODE,
+  OpenClawCommandError,
+  OpenClawNotFoundError
+} from "../src/install/install-errors.js";
 import { writeSettings } from "../src/install/write-settings.js";
 import { createTempDirectory, createTempFilePath } from "./test-helpers.js";
 
@@ -141,7 +146,12 @@ test("ensureOpenClawInstalled reports a missing binary clearly", () => {
         status: null,
         error: Object.assign(new Error("missing"), { code: "ENOENT" })
       })),
-    /not found in PATH/
+    (error) => {
+      assert.ok(error instanceof OpenClawNotFoundError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.openClawNotFound);
+      assert.match(error.message, /not found in PATH/);
+      return true;
+    }
   );
 });
 
@@ -164,7 +174,14 @@ test("ensureOpenClawInstalled rethrows unexpected runner errors", () => {
         status: null,
         error: runnerError
       })),
-    (error) => error === runnerError
+    (error) => {
+      assert.ok(error instanceof OpenClawCommandError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.openClawCommandFailed);
+      assert.equal(error.operation, "verify the local OpenClaw install");
+      assert.equal(error.cause, runnerError);
+      assert.match(error.message, /openclaw --version/);
+      return true;
+    }
   );
 });
 
@@ -175,7 +192,12 @@ test("initializeOpenClawBaseConfig reports a missing binary clearly", () => {
         status: null,
         error: Object.assign(new Error("missing"), { code: "ENOENT" })
       })),
-    /not found in PATH/
+    (error) => {
+      assert.ok(error instanceof OpenClawNotFoundError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.openClawNotFound);
+      assert.match(error.message, /not found in PATH/);
+      return true;
+    }
   );
 });
 
@@ -198,6 +220,13 @@ test("initializeOpenClawBaseConfig rethrows unexpected runner errors", () => {
         status: null,
         error: runnerError
       })),
-    (error) => error === runnerError
+    (error) => {
+      assert.ok(error instanceof OpenClawCommandError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.openClawCommandFailed);
+      assert.equal(error.operation, "initialize the local OpenClaw config automatically");
+      assert.equal(error.cause, runnerError);
+      assert.match(error.message, /openclaw setup/);
+      return true;
+    }
   );
 });

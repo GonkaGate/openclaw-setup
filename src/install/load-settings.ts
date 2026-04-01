@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import JSON5 from "json5";
 import type { OpenClawConfig } from "../types/settings.js";
+import { SettingsParseError } from "./install-errors.js";
 import { readManagedSettings } from "./managed-settings-access.js";
 import { isPlainObject } from "./object-utils.js";
 
@@ -34,8 +35,8 @@ export async function loadSettings(filePath: string): Promise<LoadSettingsResult
 
   try {
     parsed = JSON5.parse(raw);
-  } catch {
-    throw new Error(`Failed to parse JSON5 in ${filePath}. Fix or restore that file before rerunning the installer.`);
+  } catch (error) {
+    throw new SettingsParseError(filePath, error);
   }
 
   if (!isPlainObject(parsed)) {

@@ -6,6 +6,7 @@ import {
   type OpenClawClientCommandRunner,
   type ResolvedPrimaryModelProbeResult
 } from "./openclaw-client.js";
+import { RuntimeVerificationError } from "./install-errors.js";
 import { runOpenClawCommand } from "./openclaw-command.js";
 
 const NEXT_GATEWAY_COMMAND = "openclaw gateway" as const;
@@ -18,6 +19,13 @@ const RUNTIME_KIND = {
   runtimeUnhealthy: "runtime_unhealthy",
   modelResolutionFailed: "model_resolution_failed"
 } as const;
+
+const RUNTIME_FAILURE_KIND_SET = new Set<RuntimeVerificationFailureKind>([
+  RUNTIME_KIND.gatewayUnavailable,
+  RUNTIME_KIND.unexpectedOutput,
+  RUNTIME_KIND.runtimeUnhealthy,
+  RUNTIME_KIND.modelResolutionFailed
+]);
 
 interface HealthyRuntimeVerificationResult {
   kind: typeof RUNTIME_KIND.healthy;
@@ -169,7 +177,11 @@ export function verifyOpenClawRuntimeForInstall(
     return createGatewayUnavailableInstallResult();
   }
 
-  throw new Error(result.message);
+  throw new RuntimeVerificationError(
+    result.kind,
+    "install",
+    `${result.message}\n\nThe GonkaGate settings were written successfully before this runtime check failed.`
+  );
 }
 
 export function verifyOpenClawRuntimeForVerify(
@@ -180,7 +192,7 @@ export function verifyOpenClawRuntimeForVerify(
   const result = verifyOpenClawRuntime(filePath, expectedPrimaryModelRef, runCommand);
 
   if (result.kind !== RUNTIME_KIND.healthy) {
-    throw new Error(result.message);
+    throw new RuntimeVerificationError(result.kind, "verify", result.message);
   }
 
   return result;
@@ -297,5 +309,9 @@ function runRuntimeStep<Result extends RuntimeProbeResult>(
 }
 
 function isRuntimeFailure(value: unknown): value is FailedRuntimeVerificationResult {
-  return typeof value === "object" && value !== null && "message" in value;
+  return typeof value === "object"
+    && value !== null
+    && "kind" in value
+    && typeof value.kind === "string"
+    && RUNTIME_FAILURE_KIND_SET.has(value.kind as RuntimeVerificationFailureKind);
 }

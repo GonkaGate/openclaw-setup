@@ -1,4 +1,9 @@
 import { spawnSync, type SpawnSyncOptionsWithStringEncoding, type SpawnSyncReturns } from "node:child_process";
+import {
+  OpenClawCommandError,
+  OpenClawNotFoundError,
+  type OpenClawCommandContext
+} from "./install-errors.js";
 
 export interface OpenClawCommandResult {
   error?: NodeJS.ErrnoException;
@@ -11,9 +16,6 @@ export interface RunOpenClawCommandOptions {
   env?: NodeJS.ProcessEnv;
   stdio?: SpawnSyncOptionsWithStringEncoding["stdio"];
 }
-
-const OPENCLAW_NOT_FOUND_MESSAGE =
-  "OpenClaw CLI was not found in PATH. Install OpenClaw first, then rerun this installer.";
 
 export function normalizeOpenClawCommandResult(result: SpawnSyncReturns<string>): OpenClawCommandResult {
   return {
@@ -36,12 +38,19 @@ export function runOpenClawCommand(
   }));
 }
 
-export function throwIfOpenClawCommandErrored(result: Pick<OpenClawCommandResult, "error">): void {
+export function throwIfOpenClawCommandErrored(
+  result: Pick<OpenClawCommandResult, "error">,
+  context?: OpenClawCommandContext
+): void {
   if (result.error?.code === "ENOENT") {
-    throw new Error(OPENCLAW_NOT_FOUND_MESSAGE);
+    throw new OpenClawNotFoundError();
   }
 
   if (result.error) {
+    if (context) {
+      throw new OpenClawCommandError(context, result.error);
+    }
+
     throw result.error;
   }
 }
