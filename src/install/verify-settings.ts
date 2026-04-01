@@ -6,7 +6,7 @@ import {
 } from "../constants/models.js";
 import type { SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import { getManagedSettingsView, MANAGED_SETTINGS_PATHS } from "./managed-settings-access.js";
+import { MANAGED_SETTINGS_PATHS, readManagedSettings } from "./managed-settings-access.js";
 import { formatUnixMode, hasOwnerOnlyPermissions } from "./file-permissions.js";
 import { asPlainObject, type PlainObject } from "./object-utils.js";
 import { validateApiKey } from "./validate-api-key.js";
@@ -17,12 +17,12 @@ export interface VerifySettingsResult {
 }
 
 export async function verifySettings(filePath: string, settings: OpenClawConfig): Promise<VerifySettingsResult> {
-  const managed = getManagedSettingsView(settings);
+  const managed = readManagedSettings(settings, filePath);
   const provider = requireManagedOpenAIProvider(managed.openaiProvider, filePath);
   const baseUrl = requireNonEmptyString(provider.baseUrl, MANAGED_SETTINGS_PATHS.openaiBaseUrl, filePath);
   const api = requireNonEmptyString(provider.api, MANAGED_SETTINGS_PATHS.openaiApi, filePath);
   requireManagedApiKey(provider.apiKey, filePath);
-  requireArray(provider.models, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
+  requirePresentArray(managed.openaiModels, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
   const primaryModelRef = getPrimaryModelRef(managed.defaultModel, filePath);
 
   if (baseUrl !== GONKAGATE_OPENAI_BASE_URL) {
@@ -122,6 +122,14 @@ function requireNonEmptyString(value: unknown, fieldPath: string, filePath: stri
 
 function requireArray(value: unknown, fieldPath: string, filePath: string): unknown[] {
   if (!Array.isArray(value)) {
+    throw new Error(`Expected "${fieldPath}" in ${filePath} to be a JSON5 array.`);
+  }
+
+  return value;
+}
+
+function requirePresentArray(value: unknown[] | undefined, fieldPath: string, filePath: string): unknown[] {
+  if (!value) {
     throw new Error(`Expected "${fieldPath}" in ${filePath} to be a JSON5 array.`);
   }
 

@@ -5,35 +5,13 @@ import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "./constants/gat
 import {
   DEFAULT_MODEL_KEY,
   SUPPORTED_MODELS,
-  SUPPORTED_MODEL_KEYS,
-  requireSupportedModel,
-  toPrimaryModelRef
+  SUPPORTED_MODEL_KEYS
 } from "./constants/models.js";
-import { createBackup as createBackupImpl } from "./install/backup.js";
-import { ensureFreshInstallLocalGateway as ensureFreshInstallLocalGatewayImpl } from "./install/bootstrap-gateway.js";
-import {
-  ensureOpenClawInstalled as ensureOpenClawInstalledImpl,
-  initializeOpenClawBaseConfig as initializeOpenClawBaseConfigImpl
-} from "./install/check-openclaw.js";
-import { loadSettings as loadSettingsImpl, requireLoadedSettings } from "./install/load-settings.js";
-import { mergeSettingsWithGonkaGate } from "./install/merge-settings.js";
-import {
-  validateOpenClawConfig as validateOpenClawConfigImpl,
-  validateSettingsBeforeWrite as validateSettingsBeforeWriteImpl
-} from "./install/openclaw-config-validation.js";
-import { promptForApiKey as promptForApiKeyImpl, promptForModel as promptForModelImpl } from "./install/prompts.js";
-import { getSettingsTarget as getSettingsTargetImpl } from "./install/settings-paths.js";
-import { validateApiKey as validateApiKeyImpl } from "./install/validate-api-key.js";
 import { formatUnixMode } from "./install/file-permissions.js";
-import { verifySettings as verifySettingsImpl } from "./install/verify-settings.js";
-import {
-  verifyOpenClawRuntimeForInstall as verifyOpenClawRuntimeForInstallImpl,
-  verifyOpenClawRuntimeForVerify as verifyOpenClawRuntimeForVerifyImpl
-} from "./install/verify-runtime.js";
-import { writeSettings as writeSettingsImpl } from "./install/write-settings.js";
+import { runInstallUseCase as runInstallUseCaseImpl, type InstallOutcome } from "./install/install-use-case.js";
+import { getSettingsTarget as getSettingsTargetImpl } from "./install/settings-paths.js";
+import { runVerifyUseCase as runVerifyUseCaseImpl } from "./install/verify-use-case.js";
 import type { SupportedModel, SupportedModelKey } from "./constants/models.js";
-import type { InstallRuntimeCheckResult } from "./install/verify-runtime.js";
-import type { OpenClawConfig } from "./types/settings.js";
 
 interface CliOptions {
   modelKey?: SupportedModelKey;
@@ -57,74 +35,16 @@ interface CliHandlers {
   onVerify: () => void;
 }
 
-interface SharedCliDependencies {
-  ensureOpenClawInstalled: typeof ensureOpenClawInstalledImpl;
+interface CliDependencies {
   getSettingsTarget: typeof getSettingsTargetImpl;
-  loadSettings: typeof loadSettingsImpl;
-  validateOpenClawConfig: typeof validateOpenClawConfigImpl;
-}
-
-interface InstallCliDependencies extends SharedCliDependencies {
-  createBackup: typeof createBackupImpl;
-  ensureFreshInstallLocalGateway: typeof ensureFreshInstallLocalGatewayImpl;
-  initializeOpenClawBaseConfig: typeof initializeOpenClawBaseConfigImpl;
-  promptForApiKey: typeof promptForApiKeyImpl;
-  promptForModel: typeof promptForModelImpl;
-  validateApiKey: typeof validateApiKeyImpl;
-  validateSettingsBeforeWrite: typeof validateSettingsBeforeWriteImpl;
-  verifyOpenClawRuntimeForInstall: typeof verifyOpenClawRuntimeForInstallImpl;
-  writeSettings: typeof writeSettingsImpl;
-}
-
-interface VerifyCliDependencies extends SharedCliDependencies {
-  verifyOpenClawRuntimeForVerify: typeof verifyOpenClawRuntimeForVerifyImpl;
-  verifySettings: typeof verifySettingsImpl;
-}
-
-type CliDependencies = InstallCliDependencies & VerifyCliDependencies;
-
-interface ExistingConfigPreparationResult {
-  kind: "existing";
-  settings: OpenClawConfig;
-}
-
-interface FreshConfigWithExistingGatewayResult {
-  kind: "fresh_preserved_gateway";
-  settings: OpenClawConfig;
-}
-
-interface FreshConfigWithLocalGatewayResult {
-  kind: "fresh_added_local_gateway";
-  settings: OpenClawConfig;
-}
-
-type InstallConfigPreparationResult =
-  | ExistingConfigPreparationResult
-  | FreshConfigWithExistingGatewayResult
-  | FreshConfigWithLocalGatewayResult;
-
-interface InstallOutcome {
-  backupPath?: string;
-  configPreparation: InstallConfigPreparationResult;
-  runtime: InstallRuntimeCheckResult;
+  runInstallUseCase: typeof runInstallUseCaseImpl;
+  runVerifyUseCase: typeof runVerifyUseCaseImpl;
 }
 
 const defaultCliDependencies = {
-  createBackup: createBackupImpl,
-  ensureOpenClawInstalled: ensureOpenClawInstalledImpl,
-  ensureFreshInstallLocalGateway: ensureFreshInstallLocalGatewayImpl,
   getSettingsTarget: getSettingsTargetImpl,
-  initializeOpenClawBaseConfig: initializeOpenClawBaseConfigImpl,
-  loadSettings: loadSettingsImpl,
-  promptForApiKey: promptForApiKeyImpl,
-  promptForModel: promptForModelImpl,
-  validateApiKey: validateApiKeyImpl,
-  validateOpenClawConfig: validateOpenClawConfigImpl,
-  validateSettingsBeforeWrite: validateSettingsBeforeWriteImpl,
-  verifyOpenClawRuntimeForInstall: verifyOpenClawRuntimeForInstallImpl,
-  verifyOpenClawRuntimeForVerify: verifyOpenClawRuntimeForVerifyImpl,
-  verifySettings: verifySettingsImpl,
-  writeSettings: writeSettingsImpl
+  runInstallUseCase: runInstallUseCaseImpl,
+  runVerifyUseCase: runVerifyUseCaseImpl
 } satisfies CliDependencies;
 
 function rejectApiKeyArgs(argv: string[]): void {
@@ -216,11 +136,6 @@ function printIntro(targetPath: string): void {
   console.log(`Curated model choice: ${SUPPORTED_MODEL_KEYS.join(", ")}.\n`);
 }
 
-function printMissingConfigSetup(targetPath: string): void {
-  console.log(`OpenClaw config was not found at ${targetPath}.`);
-  console.log('Running "openclaw setup" once to initialize the base config and workspace before applying GonkaGate settings.\n');
-}
-
 function printSuccess(targetPath: string, selectedModel: SupportedModel, result: InstallOutcome): void {
   console.log("\nInstall complete.\n");
   console.log(`Config: ${targetPath}`);
@@ -283,80 +198,29 @@ function printVerifySuccess(
 async function runInstall(
   targetPath: string,
   options: CliOptions,
-  cliDependencies: InstallCliDependencies
+  cliDependencies: CliDependencies
 ): Promise<void> {
   printIntro(targetPath);
-  cliDependencies.ensureOpenClawInstalled();
-  const configPreparation = await prepareInstallConfig(targetPath, cliDependencies);
+  const request = options.modelKey
+    ? {
+        modelKey: options.modelKey,
+        targetPath
+      }
+    : {
+        targetPath
+      };
+  const result = await cliDependencies.runInstallUseCase(request);
 
-  cliDependencies.validateOpenClawConfig(targetPath);
-
-  const apiKey = cliDependencies.validateApiKey(await cliDependencies.promptForApiKey());
-  const selectedModel = options.modelKey
-    ? requireSupportedModel(options.modelKey)
-    : await cliDependencies.promptForModel(SUPPORTED_MODELS, DEFAULT_MODEL_KEY);
-  const mergedSettings = mergeSettingsWithGonkaGate(configPreparation.settings, apiKey, selectedModel);
-  await cliDependencies.validateSettingsBeforeWrite(targetPath, mergedSettings);
-  const backupPath = configPreparation.kind === "existing" ? await cliDependencies.createBackup(targetPath) : undefined;
-
-  await cliDependencies.writeSettings(targetPath, mergedSettings);
-  const runtime = cliDependencies.verifyOpenClawRuntimeForInstall(targetPath, toPrimaryModelRef(selectedModel));
-  printSuccess(targetPath, selectedModel, {
-    backupPath,
-    configPreparation,
-    runtime
-  });
+  printSuccess(targetPath, result.selectedModel, result);
 }
 
-async function runVerify(targetPath: string, cliDependencies: VerifyCliDependencies): Promise<void> {
+async function runVerify(targetPath: string, cliDependencies: CliDependencies): Promise<void> {
   printVerifyIntro(targetPath);
-  cliDependencies.ensureOpenClawInstalled();
+  const result = await cliDependencies.runVerifyUseCase({
+    targetPath
+  });
 
-  const loaded = requireLoadedSettings(
-    await cliDependencies.loadSettings(targetPath),
-    `OpenClaw config was not found at ${targetPath}. Run "npx @gonkagate/openclaw" first.`
-  );
-
-  cliDependencies.validateOpenClawConfig(targetPath);
-  const result = await cliDependencies.verifySettings(targetPath, loaded.settings);
-  const runtimeResult = cliDependencies.verifyOpenClawRuntimeForVerify(targetPath, toPrimaryModelRef(result.selectedModel));
-
-  printVerifySuccess(targetPath, result.selectedModel, result.configMode, runtimeResult.resolvedPrimaryModelRef);
-}
-
-async function prepareInstallConfig(
-  targetPath: string,
-  cliDependencies: Pick<InstallCliDependencies, "ensureFreshInstallLocalGateway" | "initializeOpenClawBaseConfig" | "loadSettings">
-): Promise<InstallConfigPreparationResult> {
-  const initialLoad = await cliDependencies.loadSettings(targetPath);
-
-  if (initialLoad.kind === "loaded") {
-    return {
-      kind: "existing",
-      settings: initialLoad.settings
-    };
-  }
-
-  printMissingConfigSetup(targetPath);
-  cliDependencies.initializeOpenClawBaseConfig();
-
-  const loadedSettings = requireLoadedSettings(
-    await cliDependencies.loadSettings(targetPath),
-    `OpenClaw setup completed but did not create ${targetPath}. Run "openclaw setup" manually, then rerun this installer.`
-  );
-  const gatewayBootstrap = cliDependencies.ensureFreshInstallLocalGateway(loadedSettings.settings);
-
-  if (gatewayBootstrap.kind === "added_local_mode") {
-    return {
-      kind: "fresh_added_local_gateway",
-      settings: gatewayBootstrap.settings
-    };
-  }
-
-  return {
-    kind: "fresh_preserved_gateway",
-    settings: gatewayBootstrap.settings
-  };
+  printVerifySuccess(targetPath, result.selectedModel, result.configMode, result.resolvedPrimaryModelRef);
 }
 
 export async function run(argv = process.argv.slice(2), dependencies: Partial<CliDependencies> = {}): Promise<void> {

@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import JSON5 from "json5";
 import type { OpenClawConfig } from "../types/settings.js";
-import { getManagedSettingsView, MANAGED_SETTINGS_PATHS } from "./managed-settings-access.js";
-import { asPlainObject, isPlainObject } from "./object-utils.js";
+import { readManagedSettings } from "./managed-settings-access.js";
+import { isPlainObject } from "./object-utils.js";
 
 export interface LoadedSettingsResult {
   kind: "loaded";
@@ -41,8 +41,7 @@ export async function loadSettings(filePath: string): Promise<LoadSettingsResult
   if (!isPlainObject(parsed)) {
     throw new Error(`Expected ${filePath} to contain a JSON5 object.`);
   }
-
-  validateManagedSurface(parsed, filePath);
+  readManagedSettings(parsed, filePath);
 
   return {
     kind: "loaded",
@@ -57,32 +56,6 @@ export function requireLoadedSettings(result: LoadSettingsResult, missingMessage
 
   return result;
 }
-
-function validateManagedSurface(settings: OpenClawConfig, filePath: string): void {
-  const managed = getManagedSettingsView(settings);
-
-  assertPlainObjectWhenPresent(managed.modelsValue, MANAGED_SETTINGS_PATHS.models, filePath);
-  assertPlainObjectWhenPresent(managed.agentsValue, MANAGED_SETTINGS_PATHS.agents, filePath);
-  assertPlainObjectWhenPresent(managed.providersValue, MANAGED_SETTINGS_PATHS.providers, filePath);
-  assertPlainObjectWhenPresent(managed.defaultsValue, MANAGED_SETTINGS_PATHS.defaults, filePath);
-  assertPlainObjectWhenPresent(managed.openaiProviderValue, MANAGED_SETTINGS_PATHS.openaiProvider, filePath);
-  assertPlainObjectWhenPresent(managed.defaultModelValue, MANAGED_SETTINGS_PATHS.defaultModel, filePath);
-  assertPlainObjectWhenPresent(managed.allowlistValue, MANAGED_SETTINGS_PATHS.allowlist, filePath);
-  assertArrayWhenPresent(managed.openaiModelsValue, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
-}
-
-function assertPlainObjectWhenPresent(value: unknown, fieldPath: string, filePath: string): void {
-  if (value !== undefined && !asPlainObject(value)) {
-    throw new Error(`Expected "${fieldPath}" in ${filePath} to be a JSON5 object when present.`);
-  }
-}
-
-function assertArrayWhenPresent(value: unknown, fieldPath: string, filePath: string): void {
-  if (value !== undefined && !Array.isArray(value)) {
-    throw new Error(`Expected "${fieldPath}" in ${filePath} to be a JSON5 array when present.`);
-  }
-}
-
 function isNodeErrorWithCode(error: unknown, code: string): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === code;
 }

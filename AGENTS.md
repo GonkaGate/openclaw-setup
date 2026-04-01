@@ -125,8 +125,13 @@ This repo does not do:
 │   │   ├── backup.ts
 │   │   ├── bootstrap-gateway.ts
 │   │   ├── check-openclaw.ts
+│   │   ├── file-permissions.ts
+│   │   ├── install-use-case.ts
 │   │   ├── load-settings.ts
+│   │   ├── managed-settings-access.ts
 │   │   ├── merge-settings.ts
+│   │   ├── openclaw-client.ts
+│   │   ├── openclaw-command.ts
 │   │   ├── openclaw-config-validation.ts
 │   │   ├── object-utils.ts
 │   │   ├── prompts.ts
@@ -134,6 +139,7 @@ This repo does not do:
 │   │   ├── validate-api-key.ts
 │   │   ├── verify-runtime.ts
 │   │   ├── verify-settings.ts
+│   │   ├── verify-use-case.ts
 │   │   └── write-settings.ts
 │   └── types/
 │       └── settings.ts
@@ -148,13 +154,16 @@ This repo does not do:
 └── test/
     ├── bootstrap-gateway.test.ts
     ├── cli-run.test.ts
+    ├── install-use-case.test.ts
     ├── load-settings.test.ts
     ├── merge-settings.test.ts
     ├── openclaw-config-validation.test.ts
     ├── prompts-validate-api-key.test.ts
+    ├── settings-paths.test.ts
     ├── test-helpers.ts
     ├── verify-runtime.test.ts
     ├── verify-settings.test.ts
+    ├── verify-use-case.test.ts
     └── write-backup-check-openclaw.test.ts
 ```
 
@@ -170,21 +179,42 @@ It is responsible for:
 
 - parsing CLI args through `commander`
 - rendering help and version output
-- verifying that `openclaw` is installed
 - resolving the active target config path locally from the current environment
-- bootstrapping the base OpenClaw config through `openclaw setup` when the resolved config is missing
-- bootstrapping a minimal local Gateway mode on true first-run installs when gateway mode is unset
-- loading the current OpenClaw config as JSON5
-- validating the current OpenClaw config through `openclaw config validate --json` before prompting for secrets
+- dispatching to the install and verify use-case modules
+- printing user-facing success output and next steps
+
+`src/cli.ts` is intentionally a thin transport layer. Business-step orchestration should stay out of this file unless it is purely about CLI parsing or console output.
+
+### `src/install/install-use-case.ts`
+
+This file owns the install orchestration.
+
+It is responsible for:
+
+- verifying that `openclaw` is installed before any other install step
+- loading the active config or bootstrapping it through `openclaw setup` on first run
+- applying first-run-only local Gateway bootstrap logic
+- validating the current config before prompting for secrets
 - running the hidden API key prompt
 - selecting the model
 - merging GonkaGate settings into the existing config
-- validating the generated candidate config through `openclaw config validate --json` before replacing the live file
+- validating the generated candidate config before replacing the live file
 - creating a backup before overwriting an existing config
-- writing the final file and showing next steps
-- dispatching the read-only `verify` subcommand
-- validating that the saved config still matches the supported GonkaGate provider setup
-- validating that the active local OpenClaw runtime can still load that setup through read-only CLI probes
+- writing the final file
+- performing the install-time runtime probe and returning the resulting outcome
+
+### `src/install/verify-use-case.ts`
+
+This file owns the read-only verification orchestration.
+
+It is responsible for:
+
+- verifying that `openclaw` is installed
+- loading the current config without mutating it
+- validating the current config through `openclaw config validate --json`
+- delegating config verification to `verify-settings.ts`
+- delegating runtime verification to `verify-runtime.ts`
+- returning the structured verification outcome back to the CLI transport layer
 
 ### `src/constants/`
 
@@ -210,7 +240,11 @@ Verifies that the local `openclaw` CLI exists and is callable through `openclaw 
 
 It also runs `openclaw setup` for first-run installs when the resolved config path has not been created yet.
 
-The installer should fail before asking for secrets if OpenClaw is not available.
+It is a compatibility wrapper over the typed OpenClaw client boundary.
+
+### `src/install/file-permissions.ts`
+
+This file owns the owner-only permission policy and formatting helpers shared by write, backup, and verify flows.
 
 ### `src/install/bootstrap-gateway.ts`
 
@@ -250,6 +284,17 @@ Rules:
 - if managed surfaces like `models.providers.openai` or `agents.defaults.models` are present with invalid shapes, the installer must stop
 - if `models.providers.openai.models` is present, it must be a JSON5 array
 
+### `src/install/managed-settings-access.ts`
+
+This file is the single typed boundary for the managed OpenClaw config surface.
+
+It must:
+
+- define the owned managed path names
+- expose a read-only view over the managed config surface
+- validate managed-object and array shapes consistently for load, merge, and verify flows
+- provide normalized copies for write-oriented merge logic so managed-surface policy is not spread across multiple modules
+
 ### `src/install/merge-settings.ts`
 
 This is the core business-logic merge layer.
@@ -264,6 +309,8 @@ It must:
 - set `agents.defaults.model.primary`
 - preserve unrelated keys inside `agents.defaults.model`
 - merge `agents.defaults.models` only when it already exists
+
+It must consume the shared managed-settings boundary instead of re-deriving managed object shapes locally.
 
 ### `src/install/backup.ts`
 
@@ -292,6 +339,25 @@ It must:
 - validate the generated candidate config before the live file is replaced
 - remove temporary candidate files after validation completes
 
+It should rely on the shared OpenClaw client boundary for `openclaw config validate --json` command semantics.
+
+### `src/install/openclaw-client.ts`
+
+This file is the typed OpenClaw CLI adapter.
+
+It must:
+
+- own command spawning options for version checks, setup, validation, and runtime probes
+- own `OPENCLAW_CONFIG_PATH` env wiring for explicit config validation
+- parse structured CLI output for validation, gateway status, health, and model status
+- keep OpenClaw command semantics centralized so feature modules do not duplicate command names, flags, and output parsing
+
+### `src/install/openclaw-command.ts`
+
+This file is the low-level process-spawn helper used by the OpenClaw client.
+
+It should stay small and generic: spawn processes, normalize raw command results, and format combined stdout/stderr output.
+
 ### `src/install/verify-settings.ts`
 
 This is the read-only config verification layer used by `npx @gonkagate/openclaw verify`.
@@ -318,6 +384,8 @@ It must:
 - fail if `openclaw models status --plain` does not resolve the same primary model as the saved config
 - never rewrite config or mutate local OpenClaw state during verification
 
+It should consume the shared OpenClaw client probe layer rather than shelling out directly on its own.
+
 ### `docs/`
 
 Public user-facing documentation:
@@ -339,15 +407,19 @@ They must not replace `npx` as the primary public UX.
 
 Baseline tests cover:
 
+- thin CLI delegation and console output
 - automatic base setup for first-run installs
+- install orchestration ownership
 - first-run minimal Gateway bootstrap behavior
 - merge behavior
 - model selection behavior
 - read-only verification behavior
+- verify orchestration ownership
 - invalid JSON5 handling
 - backup/write flow
 - API key validation
 - OpenClaw presence checks
+- OpenClaw config path precedence
 
 ## Installer Happy Path
 
