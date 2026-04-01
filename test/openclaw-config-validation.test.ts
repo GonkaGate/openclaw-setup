@@ -95,3 +95,26 @@ test("validateSettingsBeforeWrite writes a candidate file next to the target, va
   assert.equal(candidateContents?.includes('"primary": "openai/qwen/qwen3-235b-a22b-instruct-2507-fp8"'), true);
   assert.equal(existsSync(candidatePath!), false);
 });
+
+test("validateSettingsBeforeWrite awaits async validators before removing the candidate file", async () => {
+  const targetPath = await createTempFilePath("openclaw-prewrite-validation-async-");
+  let candidatePath: string | undefined;
+
+  await validateSettingsBeforeWrite(
+    targetPath,
+    {
+      gateway: {
+        mode: "local"
+      }
+    },
+    async (filePath) => {
+      candidatePath = filePath;
+      assert.equal(existsSync(filePath), true);
+      await Promise.resolve();
+      assert.equal(existsSync(filePath), true);
+    }
+  );
+
+  assert.ok(candidatePath);
+  assert.equal(existsSync(candidatePath!), false);
+});

@@ -84,8 +84,26 @@ test("verifyOpenClawRuntime rejects malformed gateway status output even when th
     assert.fail("Expected verifyOpenClawRuntime to reject malformed Gateway JSON");
   }
 
-  assert.equal(result.kind, "gateway_unavailable");
-  assert.match(result.message, /did not report a healthy Gateway RPC/);
+  assert.equal(result.kind, "unexpected_output");
+  assert.match(result.message, /Unable to interpret/);
+});
+
+test("verifyOpenClawRuntime rejects malformed health output even when the command succeeds", () => {
+  const result = verifyOpenClawRuntime(
+    "/tmp/openclaw.json",
+    toPrimaryModelRef(DEFAULT_MODEL),
+    createRunner([
+      { status: 0, stdout: '{"rpc":{"ok":true}}' },
+      { status: 0, stdout: "[]" }
+    ])
+  );
+
+  if (result.kind === "healthy") {
+    assert.fail("Expected verifyOpenClawRuntime to reject malformed health JSON");
+  }
+
+  assert.equal(result.kind, "unexpected_output");
+  assert.match(result.message, /openclaw health --json/);
 });
 
 test("verifyOpenClawRuntime rejects gateway status reports whose rpc.ok flag is false", () => {
@@ -176,6 +194,20 @@ test("verifyOpenClawRuntimeForInstall tolerates gateway-unavailable results and 
   });
 });
 
+test("verifyOpenClawRuntimeForInstall keeps malformed gateway status output strict", () => {
+  assert.throws(
+    () =>
+      verifyOpenClawRuntimeForInstall(
+        "/tmp/openclaw.json",
+        toPrimaryModelRef(DEFAULT_MODEL),
+        createRunner([
+          { status: 0, stdout: "not json" }
+        ])
+      ),
+    /Unable to interpret/
+  );
+});
+
 test("verifyOpenClawRuntimeForInstall rethrows strict runtime failures for install", () => {
   assert.throws(
     () =>
@@ -225,25 +257,33 @@ test("verifyOpenClawRuntimeForVerify preserves successful runtime results unchan
 
 test("verifyOpenClawRuntimeForInstall rethrows every strict failure kind except gateway-unavailable", () => {
   const strictFailureKinds: RuntimeVerificationFailureKind[] = [
+    "unexpected_output",
     "runtime_unhealthy",
     "model_resolution_failed"
   ];
 
   for (const kind of strictFailureKinds) {
-    const runner = kind === "runtime_unhealthy"
+    const runner = kind === "unexpected_output"
       ? createRunner([
           { status: 0, stdout: '{"rpc":{"ok":true}}' },
-          { status: 0, stdout: '{"ok":false}' }
+          { status: 0, stdout: "[]" }
         ])
-      : createRunner([
-          { status: 0, stdout: '{"rpc":{"ok":true}}' },
-          { status: 0, stdout: '{"ok":true}' },
-          { status: 0, stdout: "openai/not-the-expected-model\n" }
-        ]);
+      : kind === "runtime_unhealthy"
+        ? createRunner([
+            { status: 0, stdout: '{"rpc":{"ok":true}}' },
+            { status: 0, stdout: '{"ok":false}' }
+          ])
+        : createRunner([
+            { status: 0, stdout: '{"rpc":{"ok":true}}' },
+            { status: 0, stdout: '{"ok":true}' },
+            { status: 0, stdout: "openai/not-the-expected-model\n" }
+          ]);
 
     assert.throws(
       () => verifyOpenClawRuntimeForInstall("/tmp/openclaw.json", toPrimaryModelRef(DEFAULT_MODEL), runner),
-      kind === "runtime_unhealthy" ? /unhealthy runtime/ : /expects/
+      kind === "unexpected_output" ? /Unable to interpret/
+        : kind === "runtime_unhealthy" ? /unhealthy runtime/
+          : /expects/
     );
   }
 });

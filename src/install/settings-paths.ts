@@ -28,9 +28,15 @@ export function getSettingsTarget(userHome = homedir(), env: NodeJS.ProcessEnv =
 }
 
 function getConfiguredEnvPath(value: string | undefined): string | undefined {
-  if (typeof value !== "string" || value.length === 0) {
+  if (typeof value !== "string") {
     return undefined;
   }
 
-  return value;
+  const normalizedValue = value.trim();
+
+  if (normalizedValue.length === 0) {
+    return undefined;
+  }
+
+  return normalizedValue;
 }

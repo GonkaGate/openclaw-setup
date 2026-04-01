@@ -7,11 +7,12 @@ import { createOpenClawClient, type OpenClawClientCommandRunner } from "./opencl
 import { runOpenClawCommand } from "./openclaw-command.js";
 
 export type ValidationCommandRunner = OpenClawClientCommandRunner;
+export type ValidateOpenClawConfig = (filePath: string) => void | Promise<void>;
 
 export async function validateSettingsBeforeWrite(
   targetPath: string,
   settings: OpenClawConfig,
-  validateOpenClawConfigImpl: typeof validateOpenClawConfig = validateOpenClawConfig
+  validateOpenClawConfigImpl: ValidateOpenClawConfig = validateOpenClawConfig
 ): Promise<void> {
   const directory = path.dirname(targetPath);
   const candidatePath = path.join(directory, `${path.basename(targetPath)}.candidate-${randomUUID()}.json`);
@@ -25,7 +26,7 @@ export async function validateSettingsBeforeWrite(
       mode: DEFAULT_OWNER_ONLY_MODE
     });
     await chmod(candidatePath, DEFAULT_OWNER_ONLY_MODE);
-    validateOpenClawConfigImpl(candidatePath);
+    await validateOpenClawConfigImpl(candidatePath);
   } finally {
     await rm(candidatePath, { force: true });
   }

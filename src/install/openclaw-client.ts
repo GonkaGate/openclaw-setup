@@ -20,27 +20,43 @@ interface OpenClawValidationReport {
   valid?: boolean;
 }
 
-interface OpenClawGatewayStatusReport {
-  rpc?: {
-    ok?: boolean;
-  };
+type JsonObjectParseFailureReason = "empty_output" | "invalid_json" | "non_object";
+type JsonReportParseFailureReason = JsonObjectParseFailureReason | "invalid_shape";
+
+interface ParsedJsonObjectResult {
+  kind: "parsed";
+  value: PlainObject;
 }
 
-interface OpenClawHealthReport {
-  ok?: boolean;
+interface UnparsedJsonObjectResult {
+  kind: "unparsed";
+  reason: JsonObjectParseFailureReason;
 }
 
-export interface GatewayRpcProbeResult {
+interface ParsedGatewayRpcProbeResult {
   output: string;
-  rpcOk?: boolean;
+  reportKind: "parsed";
+  rpcOk: boolean;
   status: number | null;
 }
 
-export interface HealthSnapshotProbeResult {
-  ok?: boolean;
+interface ParsedHealthSnapshotProbeResult {
+  ok: boolean;
   output: string;
+  reportKind: "parsed";
   status: number | null;
 }
+
+interface UnparsedJsonProbeResult {
+  output: string;
+  reason: JsonReportParseFailureReason;
+  reportKind: "unparsed";
+  status: number | null;
+}
+
+export type GatewayRpcProbeResult = ParsedGatewayRpcProbeResult | UnparsedJsonProbeResult;
+
+export type HealthSnapshotProbeResult = ParsedHealthSnapshotProbeResult | UnparsedJsonProbeResult;
 
 export interface ResolvedPrimaryModelProbeResult {
   output: string;
@@ -139,11 +155,19 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
 
       const report = parseGatewayStatusReport(result.stdout);
 
-      return {
-        output: formatOpenClawCommandOutput(result),
-        rpcOk: report?.rpc?.ok,
-        status: result.status
-      };
+      return report.kind === "parsed"
+        ? {
+            output: formatOpenClawCommandOutput(result),
+            reportKind: "parsed",
+            rpcOk: report.rpcOk,
+            status: result.status
+          }
+        : {
+            output: formatOpenClawCommandOutput(result),
+            reason: report.reason,
+            reportKind: "unparsed",
+            status: result.status
+          };
     },
 
     probeHealthSnapshot() {
@@ -155,11 +179,19 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
 
       const report = parseHealthReport(result.stdout);
 
-      return {
-        ok: report?.ok,
-        output: formatOpenClawCommandOutput(result),
-        status: result.status
-      };
+      return report.kind === "parsed"
+        ? {
+            ok: report.ok,
+            output: formatOpenClawCommandOutput(result),
+            reportKind: "parsed",
+            status: result.status
+          }
+        : {
+            output: formatOpenClawCommandOutput(result),
+            reason: report.reason,
+            reportKind: "unparsed",
+            status: result.status
+          };
     },
 
     probeResolvedPrimaryModel() {
@@ -191,14 +223,14 @@ function throwIfCommandErrored(result: Pick<OpenClawCommandResult, "error">): vo
 function parseValidationReport(stdout: string): OpenClawValidationReport | undefined {
   const parsed = parseJsonObject(stdout);
 
-  if (!parsed) {
+  if (parsed.kind !== "parsed") {
     return undefined;
   }
 
   return {
-    issues: parseValidationIssues(parsed.issues),
-    path: typeof parsed.path === "string" ? parsed.path : undefined,
-    valid: typeof parsed.valid === "boolean" ? parsed.valid : undefined
+    issues: parseValidationIssues(parsed.value.issues),
+    path: typeof parsed.value.path === "string" ? parsed.value.path : undefined,
+    valid: typeof parsed.value.valid === "boolean" ? parsed.value.valid : undefined
   };
 }
 
@@ -279,48 +311,95 @@ function parseValidationIssue(value: unknown): OpenClawValidationIssue | undefin
   };
 }
 
-function parseGatewayStatusReport(stdout: string): OpenClawGatewayStatusReport | undefined {
+function parseGatewayStatusReport(stdout: string):
+  | {
+      kind: "parsed";
+      rpcOk: boolean;
+    }
+  | {
+      kind: "unparsed";
+      reason: JsonReportParseFailureReason;
+    } {
   const parsed = parseJsonObject(stdout);
 
-  if (!parsed) {
-    return undefined;
+  if (parsed.kind !== "parsed") {
+    return {
+      kind: "unparsed",
+      reason: parsed.reason
+    };
   }
 
-  const rpc = asPlainObject(parsed.rpc);
+  const rpc = asPlainObject(parsed.value.rpc);
 
-  if (!rpc) {
-    return {};
+  if (!rpc || typeof rpc.ok !== "boolean") {
+    return {
+      kind: "unparsed",
+      reason: "invalid_shape"
+    };
   }
 
   return {
-    rpc: {
-      ok: typeof rpc.ok === "boolean" ? rpc.ok : undefined
-    }
+    kind: "parsed",
+    rpcOk: rpc.ok
   };
 }
 
-function parseHealthReport(stdout: string): OpenClawHealthReport | undefined {
+function parseHealthReport(stdout: string):
+  | {
+      kind: "parsed";
+      ok: boolean;
+    }
+  | {
+      kind: "unparsed";
+      reason: JsonReportParseFailureReason;
+    } {
   const parsed = parseJsonObject(stdout);
 
-  if (!parsed) {
-    return undefined;
+  if (parsed.kind !== "parsed") {
+    return {
+      kind: "unparsed",
+      reason: parsed.reason
+    };
   }
 
-  return typeof parsed.ok === "boolean"
-    ? { ok: parsed.ok }
-    : {};
+  return typeof parsed.value.ok === "boolean"
+    ? {
+        kind: "parsed",
+        ok: parsed.value.ok
+      }
+    : {
+        kind: "unparsed",
+        reason: "invalid_shape"
+      };
 }
 
-function parseJsonObject(stdout: string): PlainObject | undefined {
+function parseJsonObject(stdout: string): ParsedJsonObjectResult | UnparsedJsonObjectResult {
   const trimmed = stdout.trim();
 
   if (trimmed.length === 0) {
-    return undefined;
+    return {
+      kind: "unparsed",
+      reason: "empty_output"
+    };
   }
 
   try {
-    return asPlainObject(JSON.parse(trimmed));
+    const parsed = JSON.parse(trimmed);
+    const objectValue = asPlainObject(parsed);
+
+    return objectValue
+      ? {
+          kind: "parsed",
+          value: objectValue
+        }
+      : {
+          kind: "unparsed",
+          reason: "non_object"
+        };
   } catch {
-    return undefined;
+    return {
+      kind: "unparsed",
+      reason: "invalid_json"
+    };
   }
 }

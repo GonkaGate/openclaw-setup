@@ -71,3 +71,21 @@ test("getSettingsTarget ignores empty override values and falls back to the next
     path.join("/tmp/openclaw-home", ".openclaw", "openclaw.json")
   );
 });
+
+test("getSettingsTarget ignores whitespace-only override values and trims surrounding whitespace", () => {
+  assert.equal(
+    getSettingsTarget("/tmp/test-home", {
+      OPENCLAW_CONFIG_PATH: "   ",
+      OPENCLAW_STATE_DIR: " /tmp/openclaw-state ",
+      OPENCLAW_HOME: " /tmp/openclaw-home "
+    }),
+    path.join("/tmp/openclaw-state", "openclaw.json")
+  );
+
+  assert.equal(
+    getSettingsTarget("/tmp/test-home", {
+      OPENCLAW_HOME: " /tmp/openclaw-home "
+    }),
+    path.join("/tmp/openclaw-home", ".openclaw", "openclaw.json")
+  );
+});

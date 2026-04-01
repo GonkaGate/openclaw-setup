@@ -14,6 +14,7 @@ const VERIFY_COMMAND = "npx @gonkagate/openclaw verify";
 const RUNTIME_KIND = {
   healthy: "healthy",
   gatewayUnavailable: "gateway_unavailable",
+  unexpectedOutput: "unexpected_output",
   runtimeUnhealthy: "runtime_unhealthy",
   modelResolutionFailed: "model_resolution_failed"
 } as const;
@@ -30,6 +31,7 @@ interface GatewayUnavailableInstallRuntimeResult {
 
 export type RuntimeVerificationFailureKind =
   | typeof RUNTIME_KIND.gatewayUnavailable
+  | typeof RUNTIME_KIND.unexpectedOutput
   | typeof RUNTIME_KIND.runtimeUnhealthy
   | typeof RUNTIME_KIND.modelResolutionFailed;
 
@@ -66,6 +68,17 @@ export function verifyOpenClawRuntime(
       `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`,
     probe: () => openClawClient.probeGatewayRpc(),
     validate: (result) => {
+      if (result.reportKind === "unparsed") {
+        return createFailedRuntimeResult(
+          RUNTIME_KIND.unexpectedOutput,
+          formatUnexpectedJsonReport(
+            '"openclaw gateway status --require-rpc --json"',
+            'a JSON object with a boolean "rpc.ok" field',
+            result
+          )
+        );
+      }
+
       if (result.rpcOk === true) {
         return undefined;
       }
@@ -91,6 +104,17 @@ export function verifyOpenClawRuntime(
       `Unable to confirm OpenClaw health through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
     probe: () => openClawClient.probeHealthSnapshot(),
     validate: (result) => {
+      if (result.reportKind === "unparsed") {
+        return createFailedRuntimeResult(
+          RUNTIME_KIND.unexpectedOutput,
+          formatUnexpectedJsonReport(
+            '"openclaw health --json"',
+            'a JSON object with a boolean "ok" field',
+            result
+          )
+        );
+      }
+
       if (result.ok === true) {
         return undefined;
       }
@@ -178,6 +202,36 @@ function formatCommandFailure(baseMessage: string, result: RuntimeProbeResult): 
   const outputSuffix = result.output.length > 0 ? `\n\nOpenClaw output:\n${result.output}` : "";
 
   return `${baseMessage}${outputSuffix}`;
+}
+
+function formatUnexpectedJsonReport(
+  command: string,
+  expectedShape: string,
+  result: GatewayRpcProbeResult | HealthSnapshotProbeResult
+): string {
+  const reason = result.reportKind === "unparsed"
+    ? formatUnexpectedJsonReason(result.reason)
+    : "OpenClaw returned an unexpected JSON payload.";
+
+  return formatCommandFailure(
+    `Unable to interpret ${command}. Expected ${expectedShape}, but ${reason}`,
+    result
+  );
+}
+
+function formatUnexpectedJsonReason(reason: string): string {
+  switch (reason) {
+    case "empty_output":
+      return "received empty output.";
+    case "invalid_json":
+      return "received malformed JSON.";
+    case "non_object":
+      return "received JSON that was not an object.";
+    case "invalid_shape":
+      return "received JSON with the wrong shape.";
+    default:
+      return "received unexpected output.";
+  }
 }
 
 function verifyResolvedPrimaryModel(
