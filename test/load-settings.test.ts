@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import test from "node:test";
-import { INSTALL_ERROR_CODE, SettingsParseError } from "../src/install/install-errors.js";
+import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
+import { INSTALL_ERROR_CODE, SettingsParseError, SettingsShapeError } from "../src/install/install-errors.js";
 import { loadSettings } from "../src/install/load-settings.js";
 import { createTempFilePath } from "./test-helpers.js";
 
@@ -71,7 +72,17 @@ test("loadSettings requires the root JSON5 value to be an object", async () => {
     const filePath = await createTempFilePath("openclaw-non-object-root-");
     await writeFile(filePath, contents, "utf8");
 
-    await assert.rejects(loadSettings(filePath), /contain a JSON5 object/);
+    await assert.rejects(
+      loadSettings(filePath),
+      (error) => {
+        assert.ok(error instanceof SettingsShapeError);
+        assert.equal(error.code, INSTALL_ERROR_CODE.settingsShapeInvalid);
+        assert.equal(error.kind, "root_not_object");
+        assert.equal(error.sourceLabel, filePath);
+        assert.match(error.message, /contain a JSON5 object/);
+        return true;
+      }
+    );
   }
 });
 
@@ -153,7 +164,16 @@ test("loadSettings rejects non-object managed surfaces individually", async () =
     const filePath = await createTempFilePath("openclaw-invalid-shape-");
     await writeFile(filePath, contents, "utf8");
 
-    await assert.rejects(loadSettings(filePath), new RegExp(fieldPath.replaceAll(".", "\\.")));
+    await assert.rejects(
+      loadSettings(filePath),
+      (error) => {
+        assert.ok(error instanceof SettingsShapeError);
+        assert.equal(error.code, INSTALL_ERROR_CODE.settingsShapeInvalid);
+        assert.match(error.message, new RegExp(fieldPath.replaceAll(".", "\\.")));
+        assert.equal(error.fieldPath, fieldPath);
+        return true;
+      }
+    );
   }
 });
 
@@ -194,6 +214,37 @@ test("loadSettings accepts configs that omit optional managed objects", async ()
       defaults: {}
     }
   });
+});
+
+test("loadSettings rejects malformed managed allowlist entries for supported curated models", async () => {
+  const filePath = await createTempFilePath("openclaw-invalid-allowlist-entry-");
+  const primaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+
+  await writeFile(
+    filePath,
+    `{
+      agents: {
+        defaults: {
+          models: {
+            "${primaryModelRef}": "not-an-object",
+          },
+        },
+      },
+    }
+`,
+    "utf8"
+  );
+
+  await assert.rejects(
+    loadSettings(filePath),
+    (error) => {
+      assert.ok(error instanceof SettingsShapeError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.settingsShapeInvalid);
+      assert.equal(error.fieldPath, `agents.defaults.models.${primaryModelRef}`);
+      assert.match(error.message, /agents\.defaults\.models\./);
+      return true;
+    }
+  );
 });
 
 test("loadSettings returns exists=false when the config file is missing", async () => {

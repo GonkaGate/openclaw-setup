@@ -7,7 +7,13 @@ import {
   type OpenClawCommandResult,
   type RunOpenClawCommandOptions
 } from "./openclaw-command.js";
-import { type OpenClawCommandContext } from "./install-errors.js";
+import {
+  OpenClawCommandExitError,
+  OpenClawConfigValidationError,
+  formatCommandExitStatus,
+  type OpenClawCommandContext,
+  type OpenClawValidationIssueSummary
+} from "./install-errors.js";
 import { asPlainObject, type PlainObject } from "./object-utils.js";
 
 const OPENCLAW_COMMAND = "openclaw" as const;
@@ -39,7 +45,8 @@ export const OPENCLAW_COMMANDS = {
   },
   resolvedPrimaryModel: {
     args: ["models", "status", "--plain"],
-    description: "openclaw models status --plain"
+    description: "openclaw models status --plain",
+    expectedShape: "a single non-empty model ref line"
   },
   validateConfig: {
     args: ["config", "validate", "--json"],
@@ -47,19 +54,15 @@ export const OPENCLAW_COMMANDS = {
   }
 } as const satisfies Record<string, OpenClawCommandSpec>;
 
-interface OpenClawValidationIssue {
-  message?: string;
-  path?: string;
-}
-
 interface OpenClawValidationReport {
-  issues?: OpenClawValidationIssue[];
+  issues?: OpenClawValidationIssueSummary[];
   path?: string;
   valid?: boolean;
 }
 
 type JsonObjectParseFailureReason = "empty_output" | "invalid_json" | "non_object";
 type JsonReportParseFailureReason = JsonObjectParseFailureReason | "invalid_shape";
+type ResolvedPrimaryModelParseFailureReason = "empty_output" | "invalid_shape";
 
 interface ParsedJsonObjectResult {
   kind: "parsed";
@@ -71,36 +74,51 @@ interface UnparsedJsonObjectResult {
   reason: JsonObjectParseFailureReason;
 }
 
-interface ParsedGatewayRpcProbeResult {
+interface FailedCommandProbeResult {
+  commandStatus: "failed";
   output: string;
-  reportKind: "parsed";
+  status: number | null;
+}
+
+interface SuccessfulCommandProbeResult {
+  commandStatus: "succeeded";
+  output: string;
+  status: 0;
+}
+
+type JsonProbeReport<Parsed extends object> =
+  | ({
+      reportKind: "parsed";
+    } & Parsed)
+  | {
+      reason: JsonReportParseFailureReason;
+      reportKind: "unparsed";
+    };
+
+type GatewayRpcProbeReport = JsonProbeReport<{
   rpcOk: boolean;
-  status: number | null;
-}
+}>;
 
-interface ParsedHealthSnapshotProbeResult {
+type HealthSnapshotProbeReport = JsonProbeReport<{
   ok: boolean;
-  output: string;
-  reportKind: "parsed";
-  status: number | null;
-}
+}>;
 
-interface UnparsedJsonProbeResult {
-  output: string;
-  reason: JsonReportParseFailureReason;
-  reportKind: "unparsed";
-  status: number | null;
-}
+type ResolvedPrimaryModelProbeReport =
+  | {
+      reportKind: "parsed";
+      resolvedPrimaryModelRef: string;
+    }
+  | {
+      reason: ResolvedPrimaryModelParseFailureReason;
+      reportKind: "unparsed";
+    };
 
-export type GatewayRpcProbeResult = ParsedGatewayRpcProbeResult | UnparsedJsonProbeResult;
+export type GatewayRpcProbeResult = (FailedCommandProbeResult | SuccessfulCommandProbeResult) & GatewayRpcProbeReport;
 
-export type HealthSnapshotProbeResult = ParsedHealthSnapshotProbeResult | UnparsedJsonProbeResult;
+export type HealthSnapshotProbeResult = (FailedCommandProbeResult | SuccessfulCommandProbeResult) & HealthSnapshotProbeReport;
 
-export interface ResolvedPrimaryModelProbeResult {
-  output: string;
-  resolvedPrimaryModelRef?: string;
-  status: number | null;
-}
+export type ResolvedPrimaryModelProbeResult =
+  (FailedCommandProbeResult | SuccessfulCommandProbeResult) & ResolvedPrimaryModelProbeReport;
 
 export interface OpenClawClient {
   ensureInstalled(): void;
@@ -129,36 +147,49 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
   return {
     ensureInstalled() {
       const commandSpec = OPENCLAW_COMMANDS.ensureInstalled;
-      const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
-        stdio: "ignore"
-      });
-
-      throwIfCommandErrored(result, {
+      const context = {
         args: commandSpec.args,
         command: OPENCLAW_COMMAND,
         operation: "verify the local OpenClaw install"
+      } satisfies OpenClawCommandContext;
+      const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
+        stdio: "pipe"
       });
 
+      throwIfCommandErrored(result, context);
+
       if (result.status !== 0) {
-        throw new Error(`Unable to verify the local OpenClaw install. "${commandSpec.description}" exited with code ${result.status}.`);
+        const output = formatOpenClawCommandOutput(result);
+        const outputSuffix = output.length > 0 ? `\n\nOpenClaw output:\n${output}` : "";
+
+        throw new OpenClawCommandExitError(
+          context,
+          result.status,
+          output,
+          `Unable to verify the local OpenClaw install. "${commandSpec.description}" exited ${formatCommandExitStatus(result.status)}.${outputSuffix}`
+        );
       }
     },
 
     initializeBaseConfig() {
       const commandSpec = OPENCLAW_COMMANDS.initializeBaseConfig;
+      const context = {
+        args: commandSpec.args,
+        command: OPENCLAW_COMMAND,
+        operation: "initialize the local OpenClaw config automatically"
+      } satisfies OpenClawCommandContext;
       const result = runCommand(OPENCLAW_COMMAND, [...commandSpec.args], {
         stdio: "inherit"
       });
 
-      throwIfCommandErrored(result, {
-        args: commandSpec.args,
-        command: OPENCLAW_COMMAND,
-        operation: "initialize the local OpenClaw config automatically"
-      });
+      throwIfCommandErrored(result, context);
 
       if (result.status !== 0) {
-        throw new Error(
-          `Unable to initialize the local OpenClaw config automatically. "${commandSpec.description}" exited with code ${result.status}. Update OpenClaw or run "openclaw setup" manually, then rerun this installer.`
+        throw new OpenClawCommandExitError(
+          context,
+          result.status,
+          formatOpenClawCommandOutput(result),
+          `Unable to initialize the local OpenClaw config automatically. "${commandSpec.description}" exited ${formatCommandExitStatus(result.status)}. Update OpenClaw or run "openclaw setup" manually, then rerun this installer.`
         );
       }
     },
@@ -186,14 +217,47 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
           return;
         }
 
-        throw new Error(formatUnexpectedValidationPathMessage(filePath, report, result));
+        throw new OpenClawConfigValidationError({
+          filePath,
+          kind: "unexpected_validated_path",
+          message: formatUnexpectedValidationPathMessage(filePath, report, result),
+          output: formatOpenClawCommandOutput(result),
+          reportedPath: typeof report.path === "string" ? report.path : undefined,
+          status: result.status
+        });
       }
 
       if (report?.valid === false) {
-        throw new Error(formatInvalidConfigMessage(filePath, report.issues));
+        if (!validatedRequestedPath(report, filePath)) {
+          throw new OpenClawConfigValidationError({
+            filePath,
+            kind: "unexpected_validated_path",
+            message: formatUnexpectedValidationPathMessage(filePath, report, result),
+            output: formatOpenClawCommandOutput(result),
+            reportedPath: report.path,
+            status: result.status
+          });
+        }
+
+        throw new OpenClawConfigValidationError({
+          filePath,
+          kind: "invalid_config",
+          issues: report.issues,
+          message: formatInvalidConfigMessage(filePath, report.issues),
+          output: formatOpenClawCommandOutput(result),
+          reportedPath: report.path,
+          status: result.status
+        });
       }
 
-      throw new Error(formatValidationCommandFailure(filePath, result));
+      throw new OpenClawConfigValidationError({
+        filePath,
+        kind: "command_failed",
+        message: formatValidationCommandFailure(filePath, result),
+        output: formatOpenClawCommandOutput(result),
+        reportedPath: report?.path,
+        status: result.status
+      });
     },
 
     probeGatewayRpc() {
@@ -208,20 +272,21 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
         operation: "check the local OpenClaw Gateway RPC"
       });
 
+      const output = formatOpenClawCommandOutput(result);
       const report = parseGatewayStatusReport(result.stdout);
 
-      return report.kind === "parsed"
+      return result.status === 0
         ? {
-            output: formatOpenClawCommandOutput(result),
-            reportKind: "parsed",
-            rpcOk: report.rpcOk,
-            status: result.status
+            commandStatus: "succeeded",
+            output,
+            status: 0,
+            ...report
           }
         : {
-            output: formatOpenClawCommandOutput(result),
-            reason: report.reason,
-            reportKind: "unparsed",
-            status: result.status
+            commandStatus: "failed",
+            output,
+            status: result.status,
+            ...report
           };
     },
 
@@ -237,20 +302,21 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
         operation: "check the local OpenClaw health snapshot"
       });
 
+      const output = formatOpenClawCommandOutput(result);
       const report = parseHealthReport(result.stdout);
 
-      return report.kind === "parsed"
+      return result.status === 0
         ? {
-            ok: report.ok,
-            output: formatOpenClawCommandOutput(result),
-            reportKind: "parsed",
-            status: result.status
+            commandStatus: "succeeded",
+            output,
+            status: 0,
+            ...report
           }
         : {
-            output: formatOpenClawCommandOutput(result),
-            reason: report.reason,
-            reportKind: "unparsed",
-            status: result.status
+            commandStatus: "failed",
+            output,
+            status: result.status,
+            ...report
           };
     },
 
@@ -266,13 +332,22 @@ export function createOpenClawClient(options: CreateOpenClawClientOptions = {}):
         operation: "confirm the resolved primary model"
       });
 
-      const resolvedPrimaryModelRef = result.stdout.trim();
+      const output = formatOpenClawCommandOutput(result);
+      const report = parseResolvedPrimaryModelReport(result.stdout);
 
-      return {
-        output: formatOpenClawCommandOutput(result),
-        resolvedPrimaryModelRef: resolvedPrimaryModelRef.length > 0 ? resolvedPrimaryModelRef : undefined,
-        status: result.status
-      };
+      return result.status === 0
+        ? {
+            commandStatus: "succeeded",
+            output,
+            status: 0,
+            ...report
+          }
+        : {
+            commandStatus: "failed",
+            output,
+            status: result.status,
+            ...report
+          };
     }
   };
 }
@@ -317,7 +392,7 @@ function parseValidationReport(stdout: string): OpenClawValidationReport | undef
   };
 }
 
-function formatInvalidConfigMessage(filePath: string, issues: readonly OpenClawValidationIssue[] | undefined): string {
+function formatInvalidConfigMessage(filePath: string, issues: readonly OpenClawValidationIssueSummary[] | undefined): string {
   const formattedIssues = (issues ?? []).map(formatValidationIssue).filter((issue) => issue.length > 0);
 
   if (formattedIssues.length === 0) {
@@ -327,7 +402,7 @@ function formatInvalidConfigMessage(filePath: string, issues: readonly OpenClawV
   return `OpenClaw rejected the config at ${filePath}:\n${formattedIssues.map((issue) => `- ${issue}`).join("\n")}`;
 }
 
-function formatValidationIssue(issue: OpenClawValidationIssue): string {
+function formatValidationIssue(issue: OpenClawValidationIssueSummary): string {
   const message = typeof issue.message === "string" && issue.message.trim().length > 0
     ? issue.message.trim()
     : "Invalid configuration value.";
@@ -344,7 +419,7 @@ function formatValidationCommandFailure(filePath: string, result: OpenClawComman
 
   return (
     `Unable to validate the OpenClaw config at ${filePath} with "${OPENCLAW_COMMANDS.validateConfig.description}". ` +
-    `Update OpenClaw and rerun this installer.${outputSuffix}`
+    `The local OpenClaw CLI did not return a supported validation result.${outputSuffix}`
   );
 }
 
@@ -366,22 +441,21 @@ function formatUnexpectedValidationPathMessage(
   const outputSuffix = output.length > 0 ? `\n\nOpenClaw output:\n${output}` : "";
 
   return (
-    `OpenClaw reported a successful validation result for ${filePath}, but confirmed ${reportedPath} instead. ` +
-    `Update OpenClaw and rerun this installer.${outputSuffix}`
+    `OpenClaw reported a successful validation result for ${filePath}, but confirmed ${reportedPath} instead.${outputSuffix}`
   );
 }
 
-function parseValidationIssues(value: unknown): OpenClawValidationIssue[] | undefined {
+function parseValidationIssues(value: unknown): OpenClawValidationIssueSummary[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
 
   return value
     .map(parseValidationIssue)
-    .filter((issue): issue is OpenClawValidationIssue => issue !== undefined);
+    .filter((issue): issue is OpenClawValidationIssueSummary => issue !== undefined);
 }
 
-function parseValidationIssue(value: unknown): OpenClawValidationIssue | undefined {
+function parseValidationIssue(value: unknown): OpenClawValidationIssueSummary | undefined {
   const issue = asPlainObject(value);
 
   if (!issue) {
@@ -396,18 +470,18 @@ function parseValidationIssue(value: unknown): OpenClawValidationIssue | undefin
 
 function parseGatewayStatusReport(stdout: string):
   | {
-      kind: "parsed";
+      reportKind: "parsed";
       rpcOk: boolean;
     }
   | {
-      kind: "unparsed";
       reason: JsonReportParseFailureReason;
+      reportKind: "unparsed";
     } {
   const parsed = parseJsonObject(stdout);
 
   if (parsed.kind !== "parsed") {
     return {
-      kind: "unparsed",
+      reportKind: "unparsed",
       reason: parsed.reason
     };
   }
@@ -416,44 +490,80 @@ function parseGatewayStatusReport(stdout: string):
 
   if (!rpc || typeof rpc.ok !== "boolean") {
     return {
-      kind: "unparsed",
+      reportKind: "unparsed",
       reason: "invalid_shape"
     };
   }
 
   return {
-    kind: "parsed",
+    reportKind: "parsed",
     rpcOk: rpc.ok
   };
 }
 
 function parseHealthReport(stdout: string):
   | {
-      kind: "parsed";
       ok: boolean;
+      reportKind: "parsed";
     }
   | {
-      kind: "unparsed";
       reason: JsonReportParseFailureReason;
+      reportKind: "unparsed";
     } {
   const parsed = parseJsonObject(stdout);
 
   if (parsed.kind !== "parsed") {
     return {
-      kind: "unparsed",
+      reportKind: "unparsed",
       reason: parsed.reason
     };
   }
 
   return typeof parsed.value.ok === "boolean"
     ? {
-        kind: "parsed",
-        ok: parsed.value.ok
+        ok: parsed.value.ok,
+        reportKind: "parsed"
       }
     : {
-        kind: "unparsed",
+        reportKind: "unparsed",
         reason: "invalid_shape"
       };
+}
+
+function parseResolvedPrimaryModelReport(stdout: string):
+  | {
+      reportKind: "parsed";
+      resolvedPrimaryModelRef: string;
+    }
+  | {
+      reason: ResolvedPrimaryModelParseFailureReason;
+      reportKind: "unparsed";
+    } {
+  const trimmed = stdout.trim();
+
+  if (trimmed.length === 0) {
+    return {
+      reportKind: "unparsed",
+      reason: "empty_output"
+    };
+  }
+
+  const lines = trimmed
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  if (lines.length !== 1 || /\s/u.test(lines[0])) {
+    return {
+      reportKind: "unparsed",
+      reason: "invalid_shape"
+    };
+  }
+
+  return {
+    reportKind: "parsed",
+    resolvedPrimaryModelRef: lines[0]
+  };
 }
 
 function parseJsonObject(stdout: string): ParsedJsonObjectResult | UnparsedJsonObjectResult {

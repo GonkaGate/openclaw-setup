@@ -7,13 +7,14 @@ export interface FreshInstallGatewayBootstrapResult {
   settings: OpenClawConfig;
 }
 
+export function hasGatewayModeSetting(gateway: Record<string, unknown> | undefined): boolean {
+  return gateway !== undefined && Object.hasOwn(gateway, "mode");
+}
+
 export function ensureFreshInstallLocalGateway(settings: OpenClawConfig): FreshInstallGatewayBootstrapResult {
   const existingGateway = copyPlainObject(readManagedGateway(settings, "the loaded OpenClaw config"));
-  const existingMode = typeof existingGateway.mode === "string" && existingGateway.mode.trim().length > 0
-    ? existingGateway.mode
-    : undefined;
 
-  if (existingMode) {
+  if (hasGatewayModeSetting(existingGateway)) {
     return {
       addedLocalGatewayMode: false,
       settings

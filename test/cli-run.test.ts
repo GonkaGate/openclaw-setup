@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseCliOptions, parseCliRequest, run } from "../src/cli.js";
+import { formatCliErrorMessage, parseCliOptions, parseCliRequest, run } from "../src/cli.js";
 import { DEFAULT_MODEL, DEFAULT_MODEL_KEY, toPrimaryModelRef } from "../src/constants/models.js";
+import { CliUsageError, RuntimeVerificationError } from "../src/install/install-errors.js";
 import type { InstallOutcome } from "../src/install/install-use-case.js";
 import { withCapturedConsoleLog } from "./test-helpers.js";
 
@@ -56,8 +57,22 @@ test("parseCliRequest routes the verify subcommand separately from the install f
 });
 
 test("parseCliOptions rejects --api-key arguments", () => {
-  assert.throws(() => parseCliOptions(["--api-key", "gp-test"], silentOutput), /unsupported/);
-  assert.throws(() => parseCliOptions(["--api-key=gp-test"]), /unsupported/);
+  assert.throws(
+    () => parseCliOptions(["--api-key", "gp-test"], silentOutput),
+    (error) => {
+      assert.ok(error instanceof CliUsageError);
+      assert.equal(error.argument, "--api-key");
+      return true;
+    }
+  );
+  assert.throws(
+    () => parseCliOptions(["--api-key=gp-test"]),
+    (error) => {
+      assert.ok(error instanceof CliUsageError);
+      assert.equal(error.argument, "--api-key");
+      return true;
+    }
+  );
 });
 
 test("run delegates install requests to the install use case with the resolved target path", async () => {
@@ -198,4 +213,18 @@ test("run stops before any use case when resolving the target path fails", async
 
   assert.equal(installCalls, 0);
   assert.equal(verifyCalls, 0);
+});
+
+test("formatCliErrorMessage adds the post-write note only when the install already wrote settings", () => {
+  const installMessage = formatCliErrorMessage(
+    new RuntimeVerificationError("runtime_unhealthy", "install", "OpenClaw health check failed.")
+      .markConfigWritten("/tmp/openclaw.json")
+  );
+  const verifyMessage = formatCliErrorMessage(
+    new RuntimeVerificationError("runtime_unhealthy", "verify", "OpenClaw health check failed.")
+  );
+
+  assert.match(installMessage, /settings were written successfully/);
+  assert.doesNotMatch(verifyMessage, /settings were written successfully/);
+  assert.equal(verifyMessage, "OpenClaw health check failed.");
 });

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ensureFreshInstallLocalGateway } from "../src/install/bootstrap-gateway.js";
+import { ensureFreshInstallLocalGateway, hasGatewayModeSetting } from "../src/install/bootstrap-gateway.js";
+
+test("hasGatewayModeSetting only checks whether gateway.mode is present", () => {
+  assert.equal(hasGatewayModeSetting(undefined), false);
+  assert.equal(hasGatewayModeSetting({}), false);
+  assert.equal(hasGatewayModeSetting({ mode: "" }), true);
+  assert.equal(hasGatewayModeSetting({ mode: "local" }), true);
+});
 
 test("ensureFreshInstallLocalGateway adds gateway.mode=local when it is missing", () => {
   const result = ensureFreshInstallLocalGateway({
@@ -27,6 +34,19 @@ test("ensureFreshInstallLocalGateway preserves an existing gateway.mode", () => 
       mode: "trusted-proxy"
     }
   };
+  const result = ensureFreshInstallLocalGateway(input);
+
+  assert.equal(result.addedLocalGatewayMode, false);
+  assert.equal(result.settings, input);
+});
+
+test("ensureFreshInstallLocalGateway preserves gateway.mode when the key is already present", () => {
+  const input = {
+    gateway: {
+      mode: ""
+    }
+  };
+
   const result = ensureFreshInstallLocalGateway(input);
 
   assert.equal(result.addedLocalGatewayMode, false);

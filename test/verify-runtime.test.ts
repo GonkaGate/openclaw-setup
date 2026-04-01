@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { toPrimaryModelRef, DEFAULT_MODEL } from "../src/constants/models.js";
-import { INSTALL_ERROR_CODE, RuntimeVerificationError } from "../src/install/install-errors.js";
+import {
+  INSTALL_ERROR_CODE,
+  RuntimeVerificationError,
+  RUNTIME_VERIFICATION_STEP
+} from "../src/install/install-errors.js";
 import { createOpenClawClient } from "../src/install/openclaw-client.js";
 import {
   verifyOpenClawRuntime,
@@ -62,7 +66,62 @@ test("verifyOpenClawRuntime accepts a healthy Gateway, health snapshot, and reso
   assert.equal(result.resolvedPrimaryModelRef, expectedPrimaryModelRef);
 });
 
-test("verifyOpenClawRuntime fails clearly when the Gateway RPC probe fails", () => {
+test("createOpenClawClient keeps parsed-output metadata on non-zero probe exits", () => {
+  const gatewayFailure = createProbeClient([
+    { status: 1, stderr: "rpc failed" }
+  ]).probeGatewayRpc();
+
+  assert.deepEqual(gatewayFailure, {
+    commandStatus: "failed",
+    output: "rpc failed",
+    reason: "empty_output",
+    reportKind: "unparsed",
+    status: 1
+  });
+  assert.equal("rpcOk" in gatewayFailure, false);
+
+  const resolvedModelFailure = createProbeClient([
+    { status: 1, stderr: "model status failed" }
+  ]).probeResolvedPrimaryModel();
+
+  assert.deepEqual(resolvedModelFailure, {
+    commandStatus: "failed",
+    output: "model status failed",
+    reason: "empty_output",
+    reportKind: "unparsed",
+    status: 1
+  });
+  assert.equal("resolvedPrimaryModelRef" in resolvedModelFailure, false);
+});
+
+test("createOpenClawClient parses a single resolved model line and rejects multiline output", () => {
+  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const parsedResult = createProbeClient([
+    { status: 0, stdout: `${expectedPrimaryModelRef}\n` }
+  ]).probeResolvedPrimaryModel();
+
+  assert.deepEqual(parsedResult, {
+    commandStatus: "succeeded",
+    output: expectedPrimaryModelRef,
+    reportKind: "parsed",
+    resolvedPrimaryModelRef: expectedPrimaryModelRef,
+    status: 0
+  });
+
+  const unparsedResult = createProbeClient([
+    { status: 0, stdout: `${expectedPrimaryModelRef}\nwarning: extra line\n` }
+  ]).probeResolvedPrimaryModel();
+
+  assert.deepEqual(unparsedResult, {
+    commandStatus: "succeeded",
+    output: `${expectedPrimaryModelRef}\nwarning: extra line`,
+    reason: "invalid_shape",
+    reportKind: "unparsed",
+    status: 0
+  });
+});
+
+test("verifyOpenClawRuntime distinguishes Gateway probe command failures from gateway-unavailable reports", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
@@ -75,8 +134,10 @@ test("verifyOpenClawRuntime fails clearly when the Gateway RPC probe fails", () 
     assert.fail("Expected verifyOpenClawRuntime to report a Gateway failure");
   }
 
-  assert.equal(result.kind, "gateway_unavailable");
+  assert.equal(result.kind, "probe_command_failed");
+  assert.equal(result.step, RUNTIME_VERIFICATION_STEP.gatewayRpc);
   assert.match(result.message, /Gateway RPC/);
+  assert.match(result.message, /exited with exit code 1/);
 });
 
 test("verifyOpenClawRuntime rejects malformed gateway status output even when the command succeeds", () => {
@@ -131,6 +192,23 @@ test("verifyOpenClawRuntime rejects gateway status reports whose rpc.ok flag is 
   assert.match(result.message, /did not report a healthy Gateway RPC/);
 });
 
+test("verifyOpenClawRuntime treats structured non-zero gateway reports with rpc.ok=false as gateway unavailable", () => {
+  const result = verifyOpenClawRuntime(
+    "/tmp/openclaw.json",
+    toPrimaryModelRef(DEFAULT_MODEL),
+    createProbeClient([
+      { status: 1, stdout: '{"rpc":{"ok":false}}' }
+    ])
+  );
+
+  if (result.kind === "healthy") {
+    assert.fail("Expected verifyOpenClawRuntime to preserve the structured gateway-unavailable result");
+  }
+
+  assert.equal(result.kind, "gateway_unavailable");
+  assert.equal(result.step, RUNTIME_VERIFICATION_STEP.gatewayRpc);
+});
+
 test("verifyOpenClawRuntime rejects unhealthy health snapshots", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
@@ -164,8 +242,28 @@ test("verifyOpenClawRuntime rejects empty resolved-model output", () => {
     assert.fail("Expected verifyOpenClawRuntime to report an empty model response");
   }
 
-  assert.equal(result.kind, "model_resolution_failed");
-  assert.match(result.message, /empty response/);
+  assert.equal(result.kind, "unexpected_output");
+  assert.match(result.message, /single non-empty model ref line/);
+});
+
+test("verifyOpenClawRuntime rejects multiline resolved-model output as unexpected", () => {
+  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const result = verifyOpenClawRuntime(
+    "/tmp/openclaw.json",
+    expectedPrimaryModelRef,
+    createProbeClient([
+      { status: 0, stdout: '{"rpc":{"ok":true}}' },
+      { status: 0, stdout: '{"ok":true}' },
+      { status: 0, stdout: `${expectedPrimaryModelRef}\nwarning: extra line\n` }
+    ])
+  );
+
+  if (result.kind === "healthy") {
+    assert.fail("Expected verifyOpenClawRuntime to reject multiline model output");
+  }
+
+  assert.equal(result.kind, "unexpected_output");
+  assert.match(result.message, /Unable to interpret/);
 });
 
 test("verifyOpenClawRuntime rejects mismatched resolved models", () => {
@@ -192,7 +290,7 @@ test("verifyOpenClawRuntimeForInstall tolerates gateway-unavailable results and 
     "/tmp/openclaw.json",
     toPrimaryModelRef(DEFAULT_MODEL),
     createProbeClient([
-      { status: 1, stderr: "rpc failed" }
+      { status: 1, stdout: '{"rpc":{"ok":false}}' }
     ])
   );
 
@@ -217,8 +315,9 @@ test("verifyOpenClawRuntimeForInstall keeps malformed gateway status output stri
       assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);
       assert.equal(error.kind, "unexpected_output");
       assert.equal(error.phase, "install");
+      assert.equal(error.step, RUNTIME_VERIFICATION_STEP.gatewayRpc);
       assert.match(error.message, /Unable to interpret/);
-      assert.match(error.message, /settings were written successfully/);
+      assert.doesNotMatch(error.message, /settings were written successfully/);
       return true;
     }
   );
@@ -240,14 +339,15 @@ test("verifyOpenClawRuntimeForInstall rethrows strict runtime failures for insta
       assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);
       assert.equal(error.kind, "runtime_unhealthy");
       assert.equal(error.phase, "install");
+      assert.equal(error.step, RUNTIME_VERIFICATION_STEP.healthSnapshot);
       assert.match(error.message, /unhealthy runtime/);
-      assert.match(error.message, /settings were written successfully/);
+      assert.doesNotMatch(error.message, /settings were written successfully/);
       return true;
     }
   );
 });
 
-test("verifyOpenClawRuntimeForVerify keeps verify strict for every non-healthy result", () => {
+test("verifyOpenClawRuntimeForVerify keeps probe command failures strict", () => {
   assert.throws(
     () =>
       verifyOpenClawRuntimeForVerify(
@@ -260,9 +360,11 @@ test("verifyOpenClawRuntimeForVerify keeps verify strict for every non-healthy r
     (error) => {
       assert.ok(error instanceof RuntimeVerificationError);
       assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);
-      assert.equal(error.kind, "gateway_unavailable");
+      assert.equal(error.kind, "probe_command_failed");
       assert.equal(error.phase, "verify");
+      assert.equal(error.step, RUNTIME_VERIFICATION_STEP.gatewayRpc);
       assert.match(error.message, /Gateway RPC/);
+      assert.match(error.message, /exited with exit code 1/);
       assert.doesNotMatch(error.message, /settings were written successfully/);
       return true;
     }
@@ -289,13 +391,18 @@ test("verifyOpenClawRuntimeForVerify preserves successful runtime results unchan
 
 test("verifyOpenClawRuntimeForInstall rethrows every strict failure kind except gateway-unavailable", () => {
   const strictFailureKinds: RuntimeVerificationFailureKind[] = [
+    "probe_command_failed",
     "unexpected_output",
     "runtime_unhealthy",
     "model_resolution_failed"
   ];
 
   for (const kind of strictFailureKinds) {
-    const runner = kind === "unexpected_output"
+    const runner = kind === "probe_command_failed"
+      ? createProbeClient([
+          { status: 1, stderr: "rpc failed" }
+        ])
+      : kind === "unexpected_output"
       ? createProbeClient([
           { status: 0, stdout: '{"rpc":{"ok":true}}' },
           { status: 0, stdout: "[]" }
@@ -318,9 +425,17 @@ test("verifyOpenClawRuntimeForInstall rethrows every strict failure kind except 
         assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);
         assert.equal(error.kind, kind);
         assert.equal(error.phase, "install");
+        assert.equal(
+          error.step,
+          kind === "probe_command_failed" ? RUNTIME_VERIFICATION_STEP.gatewayRpc
+            : kind === "unexpected_output" ? RUNTIME_VERIFICATION_STEP.healthSnapshot
+              : kind === "runtime_unhealthy" ? RUNTIME_VERIFICATION_STEP.healthSnapshot
+                : RUNTIME_VERIFICATION_STEP.resolvedPrimaryModel
+        );
         assert.match(
           error.message,
-          kind === "unexpected_output" ? /Unable to interpret/
+          kind === "probe_command_failed" ? /exited with exit code 1/
+            : kind === "unexpected_output" ? /Unable to interpret/
             : kind === "runtime_unhealthy" ? /unhealthy runtime/
               : /expects/
         );

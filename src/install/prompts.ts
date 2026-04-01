@@ -1,10 +1,11 @@
 import process from "node:process";
 import { password, select } from "@inquirer/prompts";
 import type { SupportedModel, SupportedModelKey } from "../constants/models.js";
+import { PromptError } from "./install-errors.js";
 
 export async function promptForApiKey(): Promise<string> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new Error("Interactive setup requires a TTY so the API key can be entered securely.");
+    throw new PromptError("missing_tty", "Interactive setup requires a TTY so the API key can be entered securely.");
   }
 
   return password({
@@ -39,7 +40,7 @@ export function buildModelPromptConfig(
   defaultModelKey: SupportedModelKey
 ): SelectPromptConfig<SupportedModelKey> {
   if (models.length === 0) {
-    throw new Error("No supported GonkaGate models are configured.");
+    throw new PromptError("no_supported_models", "No supported GonkaGate models are configured.");
   }
 
   const defaultModel = requireModel(models, defaultModelKey);
@@ -74,7 +75,10 @@ function requireModel(models: readonly SupportedModel[], key: SupportedModelKey)
   const selectedModel = models.find((model) => model.key === key);
 
   if (!selectedModel) {
-    throw new Error(`Configured model "${key}" is not present in the curated model registry.`);
+    throw new PromptError(
+      "model_registry_mismatch",
+      `Configured model "${key}" is not present in the curated model registry.`
+    );
   }
 
   return selectedModel;
@@ -82,7 +86,7 @@ function requireModel(models: readonly SupportedModel[], key: SupportedModelKey)
 
 function rethrowPromptExit(error: unknown): never {
   if (error instanceof Error && (error.name === "ExitPromptError" || error.name === "AbortPromptError")) {
-    throw new Error("Installation cancelled.");
+    throw new PromptError("cancelled", "Installation cancelled.", { cause: error });
   }
 
   throw error;

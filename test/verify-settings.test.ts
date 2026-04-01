@@ -3,6 +3,7 @@ import { chmod, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
 import { formatUnixMode } from "../src/install/file-permissions.js";
+import { INSTALL_ERROR_CODE, SettingsVerificationError } from "../src/install/install-errors.js";
 import { verifySettings } from "../src/install/verify-settings.js";
 import { createManagedConfigFixture, createTempFilePath } from "./test-helpers.js";
 
@@ -26,7 +27,14 @@ test("verifySettings rejects configs that point OpenClaw at the wrong base URL",
         baseUrl: "https://example.com/v1"
       }
     })),
-    /models\.providers\.openai\.baseUrl/
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.settingsVerificationFailed);
+      assert.equal(error.kind, "mismatched_managed_value");
+      assert.equal(error.fieldPath, "models.providers.openai.baseUrl");
+      assert.equal(error.actual, "https://example.com/v1");
+      return true;
+    }
   );
 });
 
@@ -39,7 +47,14 @@ test("verifySettings rejects configs that use the wrong OpenClaw API adapter", a
         api: "responses"
       }
     })),
-    /models\.providers\.openai\.api/
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.settingsVerificationFailed);
+      assert.equal(error.kind, "mismatched_managed_value");
+      assert.equal(error.fieldPath, "models.providers.openai.api");
+      assert.equal(error.actual, "responses");
+      return true;
+    }
   );
 });
 
@@ -52,7 +67,15 @@ test("verifySettings rejects malformed GonkaGate API keys", async () => {
         apiKey: "not-a-gonka-key"
       }
     })),
-    /Invalid "models\.providers\.openai\.apiKey"/
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.settingsVerificationFailed);
+      assert.equal(error.kind, "invalid_api_key");
+      assert.equal(error.fieldPath, "models.providers.openai.apiKey");
+      assert.ok(error.cause instanceof Error);
+      assert.match(error.message, /Invalid "models\.providers\.openai\.apiKey"/);
+      return true;
+    }
   );
 });
 
@@ -65,7 +88,15 @@ test("verifySettings rejects saved API keys with leading or trailing whitespace"
         apiKey: " gp-test-key "
       }
     })),
-    /leading or trailing whitespace/
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.settingsVerificationFailed);
+      assert.equal(error.kind, "invalid_api_key");
+      assert.equal(error.fieldPath, "models.providers.openai.apiKey");
+      assert.ok(error.cause instanceof SettingsVerificationError);
+      assert.match(error.message, /leading or trailing whitespace/);
+      return true;
+    }
   );
 });
 
@@ -76,7 +107,13 @@ test("verifySettings rejects unsupported primary model refs", async () => {
     verifySettings(filePath, createManagedConfigFixture({
       primaryModelRef: "openai/not-supported"
     })),
-    /agents\.defaults\.model\.primary/
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.kind, "mismatched_managed_value");
+      assert.equal(error.fieldPath, "agents.defaults.model.primary");
+      assert.equal(error.actual, "openai/not-supported");
+      return true;
+    }
   );
 });
 
@@ -88,7 +125,12 @@ test("verifySettings rejects missing allowlist entries when agents.defaults.mode
       allowlist: {},
       includeAllowlist: true
     })),
-    /agents\.defaults\.models\./
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.kind, "missing_allowlist_entry");
+      assert.match(error.fieldPath ?? "", /agents\.defaults\.models\./);
+      return true;
+    }
   );
 });
 
@@ -104,7 +146,13 @@ test("verifySettings rejects mismatched allowlist aliases when agents.defaults.m
       },
       includeAllowlist: true
     })),
-    /alias/
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.kind, "mismatched_allowlist_alias");
+      assert.match(error.fieldPath ?? "", /alias/);
+      assert.equal(error.actual, "wrong-alias");
+      return true;
+    }
   );
 });
 
@@ -113,7 +161,12 @@ test("verifySettings rejects configs whose permissions are not owner-only", asyn
 
   await assert.rejects(
     verifySettings(filePath, createManagedConfigFixture()),
-    new RegExp(formatUnixMode(0o644))
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.kind, "invalid_permissions");
+      assert.equal(error.actual, formatUnixMode(0o644));
+      return true;
+    }
   );
 });
 
@@ -122,7 +175,12 @@ test("verifySettings rejects configs that are not owner-read-write only", async 
 
   await assert.rejects(
     verifySettings(filePath, createManagedConfigFixture()),
-    new RegExp(formatUnixMode(0o400))
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.kind, "invalid_permissions");
+      assert.equal(error.actual, formatUnixMode(0o400));
+      return true;
+    }
   );
 });
 
@@ -133,7 +191,12 @@ test("verifySettings rejects configs whose managed openai provider omits the mod
     verifySettings(filePath, createManagedConfigFixture({
       includeOpenAiModels: false
     })),
-    /models\.providers\.openai\.models/
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.kind, "missing_managed_value");
+      assert.equal(error.fieldPath, "models.providers.openai.models");
+      return true;
+    }
   );
 });
 

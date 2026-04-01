@@ -1,32 +1,40 @@
 import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL, OPENCLAW_PROVIDER_ID } from "../constants/gateway.js";
 import { toManagedModelSelection } from "../constants/models.js";
-import type { SupportedModel } from "../constants/models.js";
+import type { ManagedAllowlistEntry, SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import { readManagedSettingsSnapshot, type ManagedSettingsSnapshot } from "./managed-settings-access.js";
-import { asPlainObject, copyPlainObject, type PlainObject } from "./object-utils.js";
+import { readManagedAllowlistEntryWhenPresent, readManagedSettingsView } from "./managed-settings-access.js";
+import { clonePlainArray, clonePlainObject, copyPlainObject, type PlainObject, type ReadonlyPlainObject } from "./object-utils.js";
 
 export function mergeSettingsWithGonkaGate(
   settings: OpenClawConfig,
   apiKey: string,
   selectedModel: SupportedModel
 ): OpenClawConfig {
-  const managedSettings = createManagedMergeState(readManagedSettingsSnapshot(settings, "the loaded OpenClaw config"));
+  const managedSettings = readManagedSettingsView(settings, "the loaded OpenClaw config");
   const selectedModelState = toManagedModelSelection(selectedModel);
   const managedAllowlist = mergeManagedAllowlistEntry(
-    managedSettings.allowlist,
+    managedSettings.allowlist ? clonePlainObject(managedSettings.allowlist) : undefined,
     selectedModelState.primaryModelRef,
+    readManagedAllowlistEntryWhenPresent(
+      managedSettings.allowlist,
+      selectedModelState.primaryModelRef,
+      "the loaded OpenClaw config"
+    ),
     selectedModelState.allowlistEntry
   );
+  const openAiModels = managedSettings.openaiProvider?.models
+    ? clonePlainArray(managedSettings.openaiProvider.models)
+    : [];
 
   return {
     ...settings,
     models: {
-      ...managedSettings.models,
+      ...copyPlainObject(managedSettings.models),
       providers: {
-        ...managedSettings.providers,
+        ...copyPlainObject(managedSettings.providers),
         [OPENCLAW_PROVIDER_ID]: {
-          ...managedSettings.openaiProvider,
-          models: managedSettings.openaiModels,
+          ...copyPlainObject(managedSettings.openaiProvider?.raw),
+          models: openAiModels,
           baseUrl: GONKAGATE_OPENAI_BASE_URL,
           apiKey,
           api: GONKAGATE_OPENAI_API
@@ -34,12 +42,12 @@ export function mergeSettingsWithGonkaGate(
       }
     },
     agents: {
-      ...managedSettings.agents,
+      ...copyPlainObject(managedSettings.agents),
       defaults: {
-        ...managedSettings.defaults,
+        ...copyPlainObject(managedSettings.defaults),
         ...(managedAllowlist ? { models: managedAllowlist } : {}),
         model: {
-          ...managedSettings.defaultModel,
+          ...copyPlainObject(managedSettings.defaultModel?.raw),
           primary: selectedModelState.primaryModelRef
         }
       }
@@ -47,38 +55,15 @@ export function mergeSettingsWithGonkaGate(
   };
 }
 
-function createManagedMergeState(snapshot: ManagedSettingsSnapshot): {
-  agents: PlainObject;
-  allowlist: PlainObject | undefined;
-  defaultModel: PlainObject;
-  defaults: PlainObject;
-  models: PlainObject;
-  openaiModels: unknown[];
-  openaiProvider: PlainObject;
-  providers: PlainObject;
-} {
-  return {
-    agents: copyPlainObject(snapshot.agents),
-    allowlist: snapshot.allowlist ? { ...snapshot.allowlist } : undefined,
-    defaultModel: copyPlainObject(snapshot.defaultModel?.raw),
-    defaults: copyPlainObject(snapshot.defaults),
-    models: copyPlainObject(snapshot.models),
-    openaiModels: snapshot.openaiProvider?.models ? [...snapshot.openaiProvider.models] : [],
-    openaiProvider: copyPlainObject(snapshot.openaiProvider?.raw),
-    providers: copyPlainObject(snapshot.providers)
-  };
-}
-
 function mergeManagedAllowlistEntry(
   allowlist: PlainObject | undefined,
   primaryModelRef: string,
-  allowlistEntry: { alias: SupportedModel["key"] }
+  existingAllowlistEntry: ReadonlyPlainObject | undefined,
+  allowlistEntry: ManagedAllowlistEntry
 ): PlainObject | undefined {
   if (!allowlist) {
     return undefined;
   }
-
-  const existingAllowlistEntry = asPlainObject(allowlist[primaryModelRef]);
 
   return {
     ...allowlist,

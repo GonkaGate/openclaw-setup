@@ -8,6 +8,7 @@ import {
   SUPPORTED_MODEL_KEYS
 } from "./constants/models.js";
 import type { CliDisplay } from "./install/cli-display.js";
+import { InstallError, CliUsageError } from "./install/install-errors.js";
 import { runInstallUseCase as runInstallUseCaseImpl } from "./install/install-use-case.js";
 import { getSettingsTarget as getSettingsTargetImpl } from "./install/settings-paths.js";
 import { runVerifyUseCase as runVerifyUseCaseImpl } from "./install/verify-use-case.js";
@@ -49,7 +50,10 @@ const defaultCliDependencies = {
 
 function rejectApiKeyArgs(argv: string[]): void {
   if (argv.some((arg) => arg === "--api-key" || arg.startsWith("--api-key="))) {
-    throw new Error("Passing API keys via CLI arguments is intentionally unsupported. Run the installer interactively instead.");
+    throw new CliUsageError(
+      "Passing API keys via CLI arguments is intentionally unsupported. Run the installer interactively instead.",
+      { argument: "--api-key" }
+    );
   }
 }
 
@@ -209,9 +213,21 @@ function handleCliError(error: unknown): void {
     return;
   }
 
-  const message = error instanceof Error ? error.message : String(error);
+  const message = formatCliErrorMessage(error);
   console.error(`\nError: ${message}`);
   process.exitCode = 1;
+}
+
+export function formatCliErrorMessage(error: unknown): string {
+  if (error instanceof InstallError && error.configWritten) {
+    return `${error.message}\n\nThe GonkaGate settings were written successfully before this follow-up check failed.`;
+  }
+
+  if (error instanceof InstallError) {
+    return error.message;
+  }
+
+  return error instanceof Error ? error.message : String(error);
 }
 
 const isEntrypoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;

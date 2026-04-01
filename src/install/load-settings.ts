@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import JSON5 from "json5";
 import type { OpenClawConfig } from "../types/settings.js";
-import { SettingsParseError } from "./install-errors.js";
+import { SettingsMissingError, SettingsParseError, SettingsShapeError, describeValue } from "./install-errors.js";
 import { assertManagedSettingsShape } from "./managed-settings-access.js";
 import { isPlainObject } from "./object-utils.js";
 
@@ -40,7 +40,13 @@ export async function loadSettings(filePath: string): Promise<LoadSettingsResult
   }
 
   if (!isPlainObject(parsed)) {
-    throw new Error(`Expected ${filePath} to contain a JSON5 object.`);
+    throw new SettingsShapeError({
+      actual: describeValue(parsed),
+      expected: "JSON5 object",
+      kind: "root_not_object",
+      message: `Expected ${filePath} to contain a JSON5 object.`,
+      sourceLabel: filePath
+    });
   }
   assertManagedSettingsShape(parsed, filePath);
 
@@ -50,9 +56,9 @@ export async function loadSettings(filePath: string): Promise<LoadSettingsResult
   };
 }
 
-export function requireLoadedSettings(result: LoadSettingsResult, missingMessage: string): LoadedSettingsResult {
+export function requireLoadedSettings(result: LoadSettingsResult, missingError: SettingsMissingError): LoadedSettingsResult {
   if (result.kind === "missing") {
-    throw new Error(missingMessage);
+    throw missingError;
   }
 
   return result;

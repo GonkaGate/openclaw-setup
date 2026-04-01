@@ -7,6 +7,7 @@ import { ensureOpenClawInstalled, initializeOpenClawBaseConfig } from "../src/in
 import {
   INSTALL_ERROR_CODE,
   OpenClawCommandError,
+  OpenClawCommandExitError,
   OpenClawNotFoundError
 } from "../src/install/install-errors.js";
 import { writeSettings } from "../src/install/write-settings.js";
@@ -159,9 +160,19 @@ test("ensureOpenClawInstalled reports failing version checks clearly", () => {
   assert.throws(
     () =>
       ensureOpenClawInstalled(() => ({
-        status: 1
+        status: 1,
+        stderr: "permission denied",
+        stdout: ""
       })),
-    /exited with code 1/
+    (error) => {
+      assert.ok(error instanceof OpenClawCommandExitError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.openClawCommandExitedNonZero);
+      assert.equal(error.operation, "verify the local OpenClaw install");
+      assert.equal(error.status, 1);
+      assert.match(error.message, /exited with exit code 1/);
+      assert.match(error.message, /permission denied/);
+      return true;
+    }
   );
 });
 
@@ -205,9 +216,18 @@ test("initializeOpenClawBaseConfig reports failing setup clearly", () => {
   assert.throws(
     () =>
       initializeOpenClawBaseConfig(() => ({
-        status: 1
+        status: 1,
+        stderr: "",
+        stdout: ""
       })),
-    /openclaw setup/
+    (error) => {
+      assert.ok(error instanceof OpenClawCommandExitError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.openClawCommandExitedNonZero);
+      assert.equal(error.operation, "initialize the local OpenClaw config automatically");
+      assert.equal(error.status, 1);
+      assert.match(error.message, /openclaw setup/);
+      return true;
+    }
   );
 });
 

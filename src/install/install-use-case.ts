@@ -7,6 +7,7 @@ import { createInstallSuccessDisplay, type CliDisplay } from "./cli-display.js";
 import { loadSettings as loadSettingsImpl, requireLoadedSettings } from "./load-settings.js";
 import { mergeSettingsWithGonkaGate } from "./merge-settings.js";
 import { createOpenClawFacade, type OpenClawFacade } from "./openclaw-facade.js";
+import { markInstallErrorConfigWritten, SettingsMissingError } from "./install-errors.js";
 import { promptForApiKey as promptForApiKeyImpl, promptForModel as promptForModelImpl } from "./prompts.js";
 import { validateApiKey as validateApiKeyImpl } from "./validate-api-key.js";
 import { type InstallRuntimeCheckResult } from "./verify-runtime.js";
@@ -76,22 +77,27 @@ export async function runInstallUseCase(
   const backupPath = configPreparation.source === "existing" ? await dependencies.createBackup(request.targetPath) : undefined;
 
   await dependencies.writeSettings(request.targetPath, mergedSettings);
-  const runtime = dependencies.openClaw.verifyRuntimeForInstall(request.targetPath, toPrimaryModelRef(selectedModel));
 
-  return {
-    backupPath,
-    configPreparation,
-    display: createInstallSuccessDisplay({
+  try {
+    const runtime = dependencies.openClaw.verifyRuntimeForInstall(request.targetPath, toPrimaryModelRef(selectedModel));
+
+    return {
       backupPath,
       configPreparation,
+      display: createInstallSuccessDisplay({
+        backupPath,
+        configPreparation,
+        runtime,
+        selectedModel,
+        targetPath: request.targetPath
+      }),
       runtime,
       selectedModel,
       targetPath: request.targetPath
-    }),
-    runtime,
-    selectedModel,
-    targetPath: request.targetPath
-  };
+    };
+  } catch (error) {
+    throw markInstallErrorConfigWritten(error, request.targetPath);
+  }
 }
 
 async function prepareInstallConfig(
@@ -112,7 +118,11 @@ async function prepareInstallConfig(
 
   const loadedSettings = requireLoadedSettings(
     await dependencies.loadSettings(targetPath),
-    `OpenClaw setup completed but did not create ${targetPath}. Run "openclaw setup" manually, then rerun this installer.`
+    new SettingsMissingError(
+      "post_setup_target_missing",
+      targetPath,
+      `OpenClaw setup completed but did not create ${targetPath}. Run "openclaw setup" manually, then rerun this installer.`
+    )
   );
   const gatewayBootstrap = dependencies.ensureFreshInstallLocalGateway(loadedSettings.settings);
 

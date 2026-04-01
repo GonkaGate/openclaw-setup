@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_MODEL } from "../src/constants/models.js";
+import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
+import { SettingsShapeError } from "../src/install/install-errors.js";
 import { mergeSettingsWithGonkaGate } from "../src/install/merge-settings.js";
 
 test("mergeSettingsWithGonkaGate adds an empty openai model catalog when the provider did not define one", () => {
@@ -18,7 +19,7 @@ test("mergeSettingsWithGonkaGate adds an empty openai model catalog when the pro
   });
 });
 
-test("mergeSettingsWithGonkaGate preserves an existing openai model catalog and unrelated provider keys", () => {
+test("mergeSettingsWithGonkaGate preserves an existing openai model catalog and unrelated provider entries", () => {
   const existingCatalog = [
     {
       id: "existing-model",
@@ -29,6 +30,10 @@ test("mergeSettingsWithGonkaGate preserves an existing openai model catalog and 
     {
       models: {
         providers: {
+          custom: {
+            apiKey: "custom-secret",
+            baseUrl: "https://models.example.com/v1"
+          },
           openai: {
             headers: {
               "x-extra-header": "keep-me"
@@ -43,6 +48,10 @@ test("mergeSettingsWithGonkaGate preserves an existing openai model catalog and 
   );
 
   assert.deepEqual((merged.models as Record<string, unknown>).providers, {
+    custom: {
+      apiKey: "custom-secret",
+      baseUrl: "https://models.example.com/v1"
+    },
     openai: {
       api: "openai-completions",
       apiKey: "gp-test-key",
@@ -138,4 +147,59 @@ test("mergeSettingsWithGonkaGate preserves unrelated agents.defaults.model keys"
       temperature: 0.2
     }
   });
+});
+
+test("mergeSettingsWithGonkaGate preserves special object keys as data without mutating prototypes", () => {
+  const merged = mergeSettingsWithGonkaGate(
+    JSON.parse(`{
+      "models": {
+        "providers": {
+          "openai": {
+            "models": [],
+            "headers": {
+              "__proto__": {
+                "polluted": true
+              }
+            }
+          }
+        }
+      }
+    }`),
+    "gp-test-key",
+    DEFAULT_MODEL
+  );
+
+  const providers = (merged.models as Record<string, unknown>).providers as Record<string, unknown>;
+  const openaiProvider = providers.openai as Record<string, unknown>;
+  const headers = openaiProvider.headers as Record<string, unknown>;
+
+  assert.equal(Object.prototype.hasOwnProperty.call(headers, "__proto__"), true);
+  assert.deepEqual(headers.__proto__, {
+    polluted: true
+  });
+  assert.equal((Object.getPrototypeOf(headers) as { polluted?: boolean } | null)?.polluted, undefined);
+});
+
+test("mergeSettingsWithGonkaGate rejects malformed managed allowlist entries for the selected model", () => {
+  assert.throws(
+    () =>
+      mergeSettingsWithGonkaGate(
+        {
+          agents: {
+            defaults: {
+              models: {
+                [toPrimaryModelRef(DEFAULT_MODEL)]: "not-an-object"
+              }
+            }
+          }
+        },
+        "gp-test-key",
+        DEFAULT_MODEL
+      ),
+    (error) => {
+      assert.ok(error instanceof SettingsShapeError);
+      assert.equal(error.fieldPath, `agents.defaults.models.${toPrimaryModelRef(DEFAULT_MODEL)}`);
+      return true;
+    }
+  );
 });

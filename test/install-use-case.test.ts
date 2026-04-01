@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_MODEL, DEFAULT_MODEL_KEY, toPrimaryModelRef } from "../src/constants/models.js";
+import { InstallError } from "../src/install/install-errors.js";
 import type { OpenClawConfig } from "../src/types/settings.js";
 import {
   runInstallUseCase,
@@ -417,7 +418,13 @@ test("runInstallUseCase fails after writing when the Gateway is reachable but un
     runInstallUseCase({
       targetPath: "/tmp/openclaw.json"
     }, dependencies),
-    /health failed/
+    (error) => {
+      assert.ok(error instanceof InstallError);
+      assert.equal(error.configWritten, true);
+      assert.equal(error.configTargetPath, "/tmp/openclaw.json");
+      assert.match(error.message, /health failed/);
+      return true;
+    }
   );
 
   assert.equal(state.writeCalls, 1);

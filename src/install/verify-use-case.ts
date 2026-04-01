@@ -1,5 +1,6 @@
 import { toPrimaryModelRef } from "../constants/models.js";
 import { createVerifySuccessDisplay, type CliDisplay } from "./cli-display.js";
+import { SettingsMissingError } from "./install-errors.js";
 import { loadSettings as loadSettingsImpl, requireLoadedSettings } from "./load-settings.js";
 import { createOpenClawFacade, type OpenClawFacade } from "./openclaw-facade.js";
 import { verifySettings as verifySettingsImpl } from "./verify-settings.js";
@@ -36,7 +37,11 @@ export async function runVerifyUseCase(
 
   const loaded = requireLoadedSettings(
     await dependencies.loadSettings(request.targetPath),
-    `OpenClaw config was not found at ${request.targetPath}. Run "npx @gonkagate/openclaw" first.`
+    new SettingsMissingError(
+      "target_config_missing",
+      request.targetPath,
+      `OpenClaw config was not found at ${request.targetPath}. Run "npx @gonkagate/openclaw" first.`
+    )
   );
 
   dependencies.openClaw.validateConfig(request.targetPath);

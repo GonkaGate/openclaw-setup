@@ -2,13 +2,14 @@ import { randomUUID } from "node:crypto";
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "../types/settings.js";
-import { DEFAULT_OWNER_ONLY_MODE } from "./file-permissions.js";
-import { TemporaryCandidateCleanupError } from "./install-errors.js";
+import { DEFAULT_OWNER_ONLY_MODE, normalizeOwnerOnlyPermissions } from "./file-permissions.js";
+import { TemporaryCandidateCleanupError, TemporaryCandidatePreparationError } from "./install-errors.js";
 import {
   type OpenClawClientCommandRunner,
   validateOpenClawConfig as validateOpenClawConfigWithRunner
 } from "./openclaw-client.js";
 import { runOpenClawCommand } from "./openclaw-command.js";
+import { serializeSettings } from "./settings-serialization.js";
 
 export type ValidationCommandRunner = OpenClawClientCommandRunner;
 export type ValidateOpenClawConfig = (filePath: string) => void | Promise<void>;
@@ -35,17 +36,41 @@ export async function validateSettingsBeforeWrite(
 ): Promise<void> {
   const directory = path.dirname(targetPath);
   const candidatePath = path.join(directory, `${path.basename(targetPath)}.candidate-${randomUUID()}.json`);
-  const content = `${JSON.stringify(settings, null, 2)}\n`;
+  const content = serializeSettings(settings);
   let primaryError: unknown;
 
-  await fileDependencies.createDirectory(directory, { recursive: true });
+  await fileDependencies.createDirectory(directory, { recursive: true }).catch((error) => {
+    throw new TemporaryCandidatePreparationError(
+      "create_directory",
+      targetPath,
+      candidatePath,
+      `Unable to create ${directory} before validating the temporary OpenClaw config candidate for ${targetPath}.`,
+      { cause: error }
+    );
+  });
 
   try {
     await fileDependencies.writeCandidateFile(candidatePath, content, {
       encoding: "utf8",
       mode: DEFAULT_OWNER_ONLY_MODE
+    }).catch((error) => {
+      throw new TemporaryCandidatePreparationError(
+        "write_candidate",
+        targetPath,
+        candidatePath,
+        `Unable to write the temporary OpenClaw config candidate ${candidatePath} while validating ${targetPath}.`,
+        { cause: error }
+      );
     });
-    await fileDependencies.chmodFile(candidatePath, DEFAULT_OWNER_ONLY_MODE);
+    await normalizeOwnerOnlyPermissions(candidatePath, fileDependencies.chmodFile).catch((error) => {
+      throw new TemporaryCandidatePreparationError(
+        "chmod_candidate",
+        targetPath,
+        candidatePath,
+        `Unable to apply owner-only permissions to the temporary OpenClaw config candidate ${candidatePath} while validating ${targetPath}.`,
+        { cause: error }
+      );
+    });
     await validateOpenClawConfigImpl(candidatePath);
   } catch (error) {
     primaryError = error;
@@ -54,9 +79,7 @@ export async function validateSettingsBeforeWrite(
   try {
     await fileDependencies.removeFile(candidatePath, { force: true });
   } catch (error) {
-    if (!primaryError) {
-      throw new TemporaryCandidateCleanupError(targetPath, candidatePath, error);
-    }
+    throw new TemporaryCandidateCleanupError(targetPath, candidatePath, error, primaryError);
   }
 
   if (primaryError) {
