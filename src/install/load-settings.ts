@@ -1,7 +1,13 @@
 import { access, constants, readFile } from "node:fs/promises";
 import JSON5 from "json5";
+import { OPENCLAW_PROVIDER_ID } from "../constants/gateway.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import { getManagedSettingsSurface } from "./managed-settings-surface.js";
+import {
+  getAgentDefaultsSettings,
+  getAgentsSettings,
+  getModelsSettings,
+  MANAGED_SETTINGS_PATHS
+} from "./managed-settings-access.js";
 import { asPlainObject, isPlainObject } from "./object-utils.js";
 
 export interface ExistingSettingsResult {
@@ -46,15 +52,22 @@ export async function loadSettings(filePath: string): Promise<LoadSettingsResult
 }
 
 function validateManagedSurface(settings: OpenClawConfig, filePath: string): void {
-  const surface = getManagedSettingsSurface(settings);
-  assertPlainObjectWhenPresent(settings.models, `models`, filePath);
-  assertPlainObjectWhenPresent(settings.agents, `agents`, filePath);
-  assertPlainObjectWhenPresent(surface.models?.providers, `models.providers`, filePath);
-  assertPlainObjectWhenPresent(surface.agents?.defaults, `agents.defaults`, filePath);
-  assertPlainObjectWhenPresent(surface.providers?.openai, `models.providers.openai`, filePath);
-  assertPlainObjectWhenPresent(surface.defaults?.model, `agents.defaults.model`, filePath);
-  assertPlainObjectWhenPresent(surface.defaults?.models, `agents.defaults.models`, filePath);
-  assertArrayWhenPresent(surface.openaiProvider?.models, `models.providers.openai.models`, filePath);
+  assertPlainObjectWhenPresent(settings.models, MANAGED_SETTINGS_PATHS.models, filePath);
+  assertPlainObjectWhenPresent(settings.agents, MANAGED_SETTINGS_PATHS.agents, filePath);
+  const models = getModelsSettings(settings);
+  const agents = getAgentsSettings(settings);
+
+  assertPlainObjectWhenPresent(models?.providers, MANAGED_SETTINGS_PATHS.providers, filePath);
+  assertPlainObjectWhenPresent(agents?.defaults, MANAGED_SETTINGS_PATHS.defaults, filePath);
+  const providers = asPlainObject(models?.providers);
+  const defaults = getAgentDefaultsSettings(settings);
+
+  assertPlainObjectWhenPresent(providers?.[OPENCLAW_PROVIDER_ID], MANAGED_SETTINGS_PATHS.openaiProvider, filePath);
+  assertPlainObjectWhenPresent(defaults?.model, MANAGED_SETTINGS_PATHS.defaultModel, filePath);
+  assertPlainObjectWhenPresent(defaults?.models, MANAGED_SETTINGS_PATHS.allowlist, filePath);
+  const openaiProvider = asPlainObject(providers?.[OPENCLAW_PROVIDER_ID]);
+
+  assertArrayWhenPresent(openaiProvider?.models, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
 }
 
 function assertPlainObjectWhenPresent(value: unknown, fieldPath: string, filePath: string): void {

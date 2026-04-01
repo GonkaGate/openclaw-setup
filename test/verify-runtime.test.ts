@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { toPrimaryModelRef, DEFAULT_MODEL } from "../src/constants/models.js";
-import { verifyOpenClawRuntime } from "../src/install/verify-runtime.js";
+import {
+  requireHealthyRuntime,
+  resolveInstallRuntime,
+  verifyOpenClawRuntime,
+  type RuntimeVerificationFailureKind
+} from "../src/install/verify-runtime.js";
 
 interface StubCommandResult {
   error?: NodeJS.ErrnoException;
@@ -120,4 +125,65 @@ test("verifyOpenClawRuntime rejects mismatched resolved models", () => {
 
   assert.equal(result.status, "model_resolution_failed");
   assert.match(result.message, /expects/);
+});
+
+test("resolveInstallRuntime tolerates gateway-unavailable results and maps the next command", () => {
+  const result = resolveInstallRuntime({
+    message: "gateway offline",
+    status: "gateway_unavailable"
+  });
+
+  assert.deepEqual(result, {
+    nextCommand: "openclaw gateway",
+    status: "gateway_unavailable"
+  });
+});
+
+test("resolveInstallRuntime rethrows strict runtime failures for install", () => {
+  assert.throws(
+    () =>
+      resolveInstallRuntime({
+        message: "health failed",
+        status: "runtime_unhealthy"
+      }),
+    /health failed/
+  );
+});
+
+test("requireHealthyRuntime keeps verify strict for every non-healthy result", () => {
+  assert.throws(
+    () =>
+      requireHealthyRuntime({
+        message: "gateway offline",
+        status: "gateway_unavailable"
+      }),
+    /gateway offline/
+  );
+});
+
+test("requireHealthyRuntime preserves successful runtime results unchanged", () => {
+  const expectedResult = {
+    resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
+    status: "healthy" as const
+  };
+
+  assert.equal(requireHealthyRuntime(expectedResult), expectedResult);
+});
+
+test("resolveInstallRuntime rethrows every strict failure kind except gateway-unavailable", () => {
+  const strictFailureKinds: RuntimeVerificationFailureKind[] = [
+    "runtime_unhealthy",
+    "model_resolution_failed"
+  ];
+
+  for (const status of strictFailureKinds) {
+    assert.throws(
+      () =>
+        resolveInstallRuntime({
+          message: `${status} failed`,
+          status
+        }),
+      new RegExp(`${status} failed`)
+    );
+  }
 });

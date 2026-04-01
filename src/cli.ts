@@ -24,12 +24,17 @@ import {
 import { promptForApiKey as promptForApiKeyImpl, promptForModel as promptForModelImpl } from "./install/prompts.js";
 import { getSettingsTarget as getSettingsTargetImpl } from "./install/settings-paths.js";
 import { validateApiKey as validateApiKeyImpl } from "./install/validate-api-key.js";
-import { formatUnixMode, verifySettings as verifySettingsImpl } from "./install/verify-settings.js";
-import { verifyOpenClawRuntime as verifyOpenClawRuntimeImpl } from "./install/verify-runtime.js";
+import { formatUnixMode } from "./install/file-permissions.js";
+import { verifySettings as verifySettingsImpl } from "./install/verify-settings.js";
+import {
+  requireHealthyRuntime,
+  resolveInstallRuntime,
+  verifyOpenClawRuntime as verifyOpenClawRuntimeImpl
+} from "./install/verify-runtime.js";
 import { writeSettings as writeSettingsImpl } from "./install/write-settings.js";
 import type { SupportedModel, SupportedModelKey } from "./constants/models.js";
 import type { ExistingSettingsResult, LoadSettingsResult } from "./install/load-settings.js";
-import type { VerifyRuntimeResult } from "./install/verify-runtime.js";
+import type { InstallRuntimeCheckResult } from "./install/verify-runtime.js";
 import type { OpenClawConfig } from "./types/settings.js";
 
 interface CliOptions {
@@ -54,43 +59,37 @@ interface CliHandlers {
   onVerify: () => void;
 }
 
-interface CliDependencies {
-  createBackup: typeof createBackupImpl;
+interface SharedCliDependencies {
   ensureOpenClawInstalled: typeof ensureOpenClawInstalledImpl;
-  ensureFreshInstallLocalGateway: typeof ensureFreshInstallLocalGatewayImpl;
   getSettingsTarget: typeof getSettingsTargetImpl;
-  initializeOpenClawBaseConfig: typeof initializeOpenClawBaseConfigImpl;
   loadSettings: typeof loadSettingsImpl;
+  validateOpenClawConfig: typeof validateOpenClawConfigImpl;
+  verifyOpenClawRuntime: typeof verifyOpenClawRuntimeImpl;
+}
+
+interface InstallCliDependencies extends SharedCliDependencies {
+  createBackup: typeof createBackupImpl;
+  ensureFreshInstallLocalGateway: typeof ensureFreshInstallLocalGatewayImpl;
+  initializeOpenClawBaseConfig: typeof initializeOpenClawBaseConfigImpl;
   promptForApiKey: typeof promptForApiKeyImpl;
   promptForModel: typeof promptForModelImpl;
   validateApiKey: typeof validateApiKeyImpl;
-  validateOpenClawConfig: typeof validateOpenClawConfigImpl;
   validateSettingsBeforeWrite: typeof validateSettingsBeforeWriteImpl;
-  verifyOpenClawRuntime: typeof verifyOpenClawRuntimeImpl;
-  verifySettings: typeof verifySettingsImpl;
   writeSettings: typeof writeSettingsImpl;
 }
 
-interface HealthyInstallRuntimeResult {
-  resolvedPrimaryModelRef: string;
-  status: "healthy";
+interface VerifyCliDependencies extends SharedCliDependencies {
+  verifySettings: typeof verifySettingsImpl;
 }
 
-interface GatewayUnavailableInstallRuntimeResult {
-  nextCommand: "openclaw gateway";
-  status: "gateway_unavailable";
-}
-
-type InstallRuntimeResult = HealthyInstallRuntimeResult | GatewayUnavailableInstallRuntimeResult;
+type CliDependencies = InstallCliDependencies & VerifyCliDependencies;
 
 interface ExistingConfigPreparationResult {
-  backupRequired: true;
   settings: OpenClawConfig;
   status: "existing_config";
 }
 
 interface FreshConfigPreparationResult {
-  backupRequired: false;
   configuredLocalGatewayMode: boolean;
   settings: OpenClawConfig;
   status: "fresh_config";
@@ -101,10 +100,10 @@ type InstallConfigPreparationResult = ExistingConfigPreparationResult | FreshCon
 interface InstallOutcome {
   backupPath?: string;
   configPreparation: InstallConfigPreparationResult;
-  runtime: InstallRuntimeResult;
+  runtime: InstallRuntimeCheckResult;
 }
 
-const defaultCliDependencies: CliDependencies = {
+const defaultCliDependencies = {
   createBackup: createBackupImpl,
   ensureOpenClawInstalled: ensureOpenClawInstalledImpl,
   ensureFreshInstallLocalGateway: ensureFreshInstallLocalGatewayImpl,
@@ -119,7 +118,7 @@ const defaultCliDependencies: CliDependencies = {
   verifyOpenClawRuntime: verifyOpenClawRuntimeImpl,
   verifySettings: verifySettingsImpl,
   writeSettings: writeSettingsImpl
-};
+} satisfies CliDependencies;
 
 function rejectApiKeyArgs(argv: string[]): void {
   if (argv.some((arg) => arg === "--api-key" || arg.startsWith("--api-key="))) {
@@ -277,7 +276,7 @@ function printVerifySuccess(
 async function runInstall(
   targetPath: string,
   options: CliOptions,
-  cliDependencies: CliDependencies
+  cliDependencies: InstallCliDependencies
 ): Promise<void> {
   printIntro(targetPath);
   cliDependencies.ensureOpenClawInstalled();
@@ -291,12 +290,10 @@ async function runInstall(
     : await cliDependencies.promptForModel(SUPPORTED_MODELS, DEFAULT_MODEL_KEY);
   const mergedSettings = mergeSettingsWithGonkaGate(configPreparation.settings, apiKey, selectedModel);
   await cliDependencies.validateSettingsBeforeWrite(targetPath, mergedSettings);
-  const backupPath = configPreparation.backupRequired ? await cliDependencies.createBackup(targetPath) : undefined;
+  const backupPath = configPreparation.status === "existing_config" ? await cliDependencies.createBackup(targetPath) : undefined;
 
   await cliDependencies.writeSettings(targetPath, mergedSettings);
-  const runtime = toInstallRuntimeResult(
-    cliDependencies.verifyOpenClawRuntime(targetPath, toPrimaryModelRef(selectedModel))
-  );
+  const runtime = resolveInstallRuntime(cliDependencies.verifyOpenClawRuntime(targetPath, toPrimaryModelRef(selectedModel)));
   printSuccess(targetPath, selectedModel, {
     backupPath,
     configPreparation,
@@ -304,7 +301,7 @@ async function runInstall(
   });
 }
 
-async function runVerify(targetPath: string, cliDependencies: CliDependencies): Promise<void> {
+async function runVerify(targetPath: string, cliDependencies: VerifyCliDependencies): Promise<void> {
   printVerifyIntro(targetPath);
   cliDependencies.ensureOpenClawInstalled();
 
@@ -316,24 +313,21 @@ async function runVerify(targetPath: string, cliDependencies: CliDependencies): 
 
   cliDependencies.validateOpenClawConfig(targetPath);
   const result = await cliDependencies.verifySettings(targetPath, loaded.settings);
-  const runtimeResult = cliDependencies.verifyOpenClawRuntime(targetPath, toPrimaryModelRef(result.selectedModel));
-
-  if (runtimeResult.status !== "healthy") {
-    throw new Error(runtimeResult.message);
-  }
+  const runtimeResult = requireHealthyRuntime(
+    cliDependencies.verifyOpenClawRuntime(targetPath, toPrimaryModelRef(result.selectedModel))
+  );
 
   printVerifySuccess(targetPath, result.selectedModel, result.configMode, runtimeResult.resolvedPrimaryModelRef);
 }
 
 async function prepareInstallConfig(
   targetPath: string,
-  cliDependencies: CliDependencies
+  cliDependencies: Pick<InstallCliDependencies, "ensureFreshInstallLocalGateway" | "initializeOpenClawBaseConfig" | "loadSettings">
 ): Promise<InstallConfigPreparationResult> {
   const initialLoad = await cliDependencies.loadSettings(targetPath);
 
   if (initialLoad.exists) {
     return {
-      backupRequired: true,
       settings: initialLoad.settings,
       status: "existing_config"
     };
@@ -347,7 +341,6 @@ async function prepareInstallConfig(
   const gatewayBootstrap = cliDependencies.ensureFreshInstallLocalGateway(loadedSettings.settings);
 
   return {
-    backupRequired: false,
     configuredLocalGatewayMode: gatewayBootstrap.configuredLocalMode,
     settings: gatewayBootstrap.settings,
     status: "fresh_config"
@@ -363,27 +356,8 @@ function requireExistingSettings(targetPath: string, loaded: LoadSettingsResult)
 
   return loaded;
 }
-
-function toInstallRuntimeResult(runtimeResult: VerifyRuntimeResult): InstallRuntimeResult {
-  if (runtimeResult.status === "healthy") {
-    return {
-      resolvedPrimaryModelRef: runtimeResult.resolvedPrimaryModelRef,
-      status: "healthy"
-    };
-  }
-
-  if (runtimeResult.status === "gateway_unavailable") {
-    return {
-      nextCommand: "openclaw gateway",
-      status: "gateway_unavailable"
-    };
-  }
-
-  throw new Error(runtimeResult.message);
-}
-
 export async function run(argv = process.argv.slice(2), dependencies: Partial<CliDependencies> = {}): Promise<void> {
-  const cliDependencies = {
+  const cliDependencies: CliDependencies = {
     ...defaultCliDependencies,
     ...dependencies
   };

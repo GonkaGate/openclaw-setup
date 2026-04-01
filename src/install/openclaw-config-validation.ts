@@ -4,6 +4,7 @@ import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import type { OpenClawConfig } from "../types/settings.js";
+import { DEFAULT_OWNER_ONLY_MODE } from "./file-permissions.js";
 import {
   formatOpenClawCommandOutput,
   normalizeOpenClawCommandResult,
@@ -40,9 +41,9 @@ export async function validateSettingsBeforeWrite(
   try {
     await writeFile(candidatePath, content, {
       encoding: "utf8",
-      mode: 0o600
+      mode: DEFAULT_OWNER_ONLY_MODE
     });
-    await chmod(candidatePath, 0o600);
+    await chmod(candidatePath, DEFAULT_OWNER_ONLY_MODE);
     validateOpenClawConfigImpl(candidatePath);
   } finally {
     await rm(candidatePath, { force: true });

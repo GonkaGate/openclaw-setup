@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { chmod, writeFile } from "node:fs/promises";
 import test from "node:test";
 import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
-import { formatUnixMode, verifySettings } from "../src/install/verify-settings.js";
+import { formatUnixMode } from "../src/install/file-permissions.js";
+import { verifySettings } from "../src/install/verify-settings.js";
 import { createTempFilePath } from "./test-helpers.js";
 
 test("verifySettings accepts the managed GonkaGate provider config with owner-only permissions", async () => {

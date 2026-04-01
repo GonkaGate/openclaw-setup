@@ -5,6 +5,7 @@ import test from "node:test";
 import { parseCliOptions, parseCliRequest, run } from "../src/cli.js";
 import { DEFAULT_MODEL, DEFAULT_MODEL_KEY, toPrimaryModelRef } from "../src/constants/models.js";
 import { getSettingsTarget } from "../src/install/settings-paths.js";
+import type { RuntimeVerificationFailureKind } from "../src/install/verify-runtime.js";
 import { createTempFilePath, withCapturedConsoleLog, withMutedConsoleLog } from "./test-helpers.js";
 
 const silentOutput = {
@@ -13,6 +14,27 @@ const silentOutput = {
 };
 
 type RunDependencies = NonNullable<Parameters<typeof run>[1]>;
+type CliDependencies = RunDependencies extends Partial<infer Dependencies> ? Dependencies : never;
+type InstallHarnessDependencies = Pick<
+  CliDependencies,
+  | "createBackup"
+  | "ensureOpenClawInstalled"
+  | "ensureFreshInstallLocalGateway"
+  | "getSettingsTarget"
+  | "initializeOpenClawBaseConfig"
+  | "loadSettings"
+  | "promptForApiKey"
+  | "promptForModel"
+  | "validateApiKey"
+  | "validateOpenClawConfig"
+  | "validateSettingsBeforeWrite"
+  | "verifyOpenClawRuntime"
+  | "writeSettings"
+>;
+type VerifyHarnessDependencies = Pick<
+  CliDependencies,
+  "ensureOpenClawInstalled" | "getSettingsTarget" | "loadSettings" | "validateOpenClawConfig" | "verifyOpenClawRuntime" | "verifySettings"
+>;
 
 function createHealthyRuntimeResult() {
   return {
@@ -22,7 +44,7 @@ function createHealthyRuntimeResult() {
 }
 
 function createRuntimeFailureResult(
-  status: "gateway_unavailable" | "runtime_unhealthy" | "model_resolution_failed",
+  status: RuntimeVerificationFailureKind,
   message: string
 ) {
   return {
@@ -31,7 +53,12 @@ function createRuntimeFailureResult(
   };
 }
 
-interface RunHarnessState {
+interface RuntimeVerifyInput {
+  expectedPrimaryModelRef: string;
+  filePath: string;
+}
+
+interface InstallHarnessState {
   backupCalls: number;
   backupPaths: string[];
   configValidationCalls: number;
@@ -45,25 +72,33 @@ interface RunHarnessState {
   promptApiKeyCalls: number;
   promptModelCalls: number;
   runtimeVerifyCalls: number;
-  runtimeVerifyInputs: Array<{
-    expectedPrimaryModelRef: string;
-    filePath: string;
-  }>;
+  runtimeVerifyInputs: RuntimeVerifyInput[];
   setupCalls: number;
   validateCalls: number;
-  verifyCalls: number;
-  verifyPaths: string[];
   writeCalls: number;
   writePaths: string[];
   order: string[];
   writtenSettings?: Record<string, unknown>;
 }
 
-function createRunHarness(overrides: Partial<RunDependencies> = {}): {
-  dependencies: RunDependencies;
-  state: RunHarnessState;
+interface VerifyHarnessState {
+  configValidationCalls: number;
+  configValidationPaths: string[];
+  ensureCalls: number;
+  loadCalls: number;
+  loadPaths: string[];
+  runtimeVerifyCalls: number;
+  runtimeVerifyInputs: RuntimeVerifyInput[];
+  verifyCalls: number;
+  verifyPaths: string[];
+  order: string[];
+}
+
+function createInstallHarness(overrides: Partial<InstallHarnessDependencies> = {}): {
+  dependencies: InstallHarnessDependencies;
+  state: InstallHarnessState;
 } {
-  const state: RunHarnessState = {
+  const state: InstallHarnessState = {
     backupCalls: 0,
     backupPaths: [],
     configValidationCalls: 0,
@@ -80,14 +115,12 @@ function createRunHarness(overrides: Partial<RunDependencies> = {}): {
     runtimeVerifyInputs: [],
     setupCalls: 0,
     validateCalls: 0,
-    verifyCalls: 0,
-    verifyPaths: [],
     writeCalls: 0,
     writePaths: [],
     order: []
   };
 
-  const dependencies: RunDependencies = {
+  const dependencies: InstallHarnessDependencies = {
     createBackup: async (filePath) => {
       state.backupCalls += 1;
       state.backupPaths.push(filePath);
@@ -161,6 +194,69 @@ function createRunHarness(overrides: Partial<RunDependencies> = {}): {
       state.order.push("verifyRuntime");
       return createHealthyRuntimeResult();
     },
+    writeSettings: async (filePath, settings) => {
+      state.writeCalls += 1;
+      state.writePaths.push(filePath);
+      state.order.push("write");
+      state.writtenSettings = settings as Record<string, unknown>;
+    },
+    ...overrides
+  };
+
+  return {
+    dependencies,
+    state
+  };
+}
+
+function createVerifyHarness(overrides: Partial<VerifyHarnessDependencies> = {}): {
+  dependencies: VerifyHarnessDependencies;
+  state: VerifyHarnessState;
+} {
+  const state: VerifyHarnessState = {
+    configValidationCalls: 0,
+    configValidationPaths: [],
+    ensureCalls: 0,
+    loadCalls: 0,
+    loadPaths: [],
+    runtimeVerifyCalls: 0,
+    runtimeVerifyInputs: [],
+    verifyCalls: 0,
+    verifyPaths: [],
+    order: []
+  };
+
+  const dependencies: VerifyHarnessDependencies = {
+    ensureOpenClawInstalled: () => {
+      state.ensureCalls += 1;
+      state.order.push("ensure");
+    },
+    getSettingsTarget: () => ({
+      path: "/tmp/openclaw.json"
+    }),
+    loadSettings: async (filePath) => {
+      state.loadCalls += 1;
+      state.loadPaths.push(filePath);
+      state.order.push("load");
+      return {
+        exists: true,
+        settings: {}
+      };
+    },
+    validateOpenClawConfig: (filePath) => {
+      state.configValidationCalls += 1;
+      state.configValidationPaths.push(filePath);
+      state.order.push("validateOpenClawConfig");
+    },
+    verifyOpenClawRuntime: (filePath, expectedPrimaryModelRef) => {
+      state.runtimeVerifyCalls += 1;
+      state.runtimeVerifyInputs.push({
+        expectedPrimaryModelRef,
+        filePath
+      });
+      state.order.push("verifyRuntime");
+      return createHealthyRuntimeResult();
+    },
     verifySettings: async (filePath) => {
       state.verifyCalls += 1;
       state.verifyPaths.push(filePath);
@@ -169,12 +265,6 @@ function createRunHarness(overrides: Partial<RunDependencies> = {}): {
         configMode: 0o600,
         selectedModel: DEFAULT_MODEL
       };
-    },
-    writeSettings: async (filePath, settings) => {
-      state.writeCalls += 1;
-      state.writePaths.push(filePath);
-      state.order.push("write");
-      state.writtenSettings = settings as Record<string, unknown>;
     },
     ...overrides
   };
@@ -355,7 +445,7 @@ test("run preserves an existing gateway.mode from fresh OpenClaw setup output", 
 });
 
 test("run does not rewrite gateway.mode for existing configs", async () => {
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     loadSettings: async () => {
       state.loadCalls += 1;
       state.order.push("load");
@@ -386,7 +476,7 @@ test("run does not rewrite gateway.mode for existing configs", async () => {
 });
 
 test("run creates a backup once before writing when updating an existing config", async () => {
-  const { dependencies, state } = createRunHarness();
+  const { dependencies, state } = createInstallHarness();
 
   await withMutedConsoleLog(async () => {
     await run([], dependencies);
@@ -403,7 +493,7 @@ test("run install uses the resolved target path from OpenClaw env precedence", a
   const resolvedTargetPath = getSettingsTarget("/tmp/test-home", {
     OPENCLAW_STATE_DIR: "/tmp/openclaw-state"
   }).path;
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     getSettingsTarget: () =>
       getSettingsTarget("/tmp/test-home", {
         OPENCLAW_STATE_DIR: "/tmp/openclaw-state"
@@ -428,7 +518,7 @@ test("run install uses the resolved target path from OpenClaw env precedence", a
 });
 
 test("run succeeds after writing a config when the Gateway is not running yet and prints one exact next command", async () => {
-  const { dependencies } = createRunHarness({
+  const { dependencies } = createInstallHarness({
     verifyOpenClawRuntime: () => createRuntimeFailureResult("gateway_unavailable", "gateway offline")
   });
 
@@ -443,7 +533,7 @@ test("run succeeds after writing a config when the Gateway is not running yet an
 });
 
 test("run fails after writing when the Gateway is reachable but unhealthy", async () => {
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     verifyOpenClawRuntime: () => createRuntimeFailureResult("runtime_unhealthy", "health failed")
   });
 
@@ -458,7 +548,7 @@ test("run fails after writing when the Gateway is reachable but unhealthy", asyn
 });
 
 test("run fails after writing when the resolved model does not match the saved config", async () => {
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     verifyOpenClawRuntime: () => createRuntimeFailureResult("model_resolution_failed", "resolved wrong model")
   });
 
@@ -473,7 +563,7 @@ test("run fails after writing when the resolved model does not match the saved c
 });
 
 test("run uses the curated --model value without prompting for a model", async () => {
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     promptForModel: async () => {
       throw new Error("promptForModel should not be called when --model is provided");
     }
@@ -496,7 +586,7 @@ test("run uses the curated --model value without prompting for a model", async (
 });
 
 test("run verify checks the existing config without prompting or writing", async () => {
-  const { dependencies, state } = createRunHarness();
+  const { dependencies, state } = createVerifyHarness();
 
   await withMutedConsoleLog(async () => {
     await run(["verify"], dependencies);
@@ -507,11 +597,6 @@ test("run verify checks the existing config without prompting or writing", async
   assert.equal(state.configValidationCalls, 1);
   assert.equal(state.verifyCalls, 1);
   assert.equal(state.runtimeVerifyCalls, 1);
-  assert.equal(state.promptApiKeyCalls, 0);
-  assert.equal(state.promptModelCalls, 0);
-  assert.equal(state.validateCalls, 0);
-  assert.equal(state.backupCalls, 0);
-  assert.equal(state.writeCalls, 0);
 });
 
 test("run verify uses the resolved target path from OpenClaw env precedence", async () => {
@@ -520,7 +605,7 @@ test("run verify uses the resolved target path from OpenClaw env precedence", as
     OPENCLAW_HOME: "/tmp/ignored-openclaw-home",
     OPENCLAW_STATE_DIR: "/tmp/ignored-openclaw-state"
   }).path;
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createVerifyHarness({
     getSettingsTarget: () =>
       getSettingsTarget("/tmp/test-home", {
         OPENCLAW_CONFIG_PATH: "/tmp/custom-openclaw.json",
@@ -542,11 +627,10 @@ test("run verify uses the resolved target path from OpenClaw env precedence", as
       filePath: resolvedTargetPath
     }
   ]);
-  assert.deepEqual(state.writePaths, []);
 });
 
 test("run verify stays strict when the Gateway is unavailable", async () => {
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createVerifyHarness({
     verifyOpenClawRuntime: () => {
       state.runtimeVerifyCalls += 1;
       state.order.push("verifyRuntime");
@@ -567,7 +651,7 @@ test("run verify stays strict when the Gateway is unavailable", async () => {
 
 test("run stops before loading settings or prompting when OpenClaw is unavailable", async () => {
   const failure = new Error("OpenClaw CLI was not found");
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     ensureOpenClawInstalled: () => {
       state.ensureCalls += 1;
       throw failure;
@@ -590,7 +674,7 @@ test("run stops before loading settings or prompting when OpenClaw is unavailabl
 });
 
 test("run verify fails clearly when the OpenClaw config does not exist yet", async () => {
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createVerifyHarness({
     loadSettings: async () => {
       state.loadCalls += 1;
       state.order.push("load");
@@ -612,8 +696,6 @@ test("run verify fails clearly when the OpenClaw config does not exist yet", asy
   assert.equal(state.configValidationCalls, 0);
   assert.equal(state.verifyCalls, 0);
   assert.equal(state.runtimeVerifyCalls, 0);
-  assert.equal(state.promptApiKeyCalls, 0);
-  assert.equal(state.writeCalls, 0);
 });
 
 test("run verify succeeds against a real temp config without mutating it", async () => {
@@ -705,7 +787,7 @@ test("run surfaces a clear error when OpenClaw setup does not create the config"
 
 test("run stops before prompting when the current OpenClaw config fails schema validation", async () => {
   const failure = new Error("OpenClaw rejected the config");
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     validateOpenClawConfig: () => {
       state.configValidationCalls += 1;
       state.order.push("validateOpenClawConfig");
@@ -732,7 +814,7 @@ test("run stops before prompting when the current OpenClaw config fails schema v
 
 test("run stops before backup or write when API key validation fails", async () => {
   const failure = new Error("Invalid API key");
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     validateApiKey: () => {
       state.validateCalls += 1;
       throw failure;
@@ -754,7 +836,7 @@ test("run stops before backup or write when API key validation fails", async () 
 
 test("run stops before any OpenClaw work when resolving the target path fails", async () => {
   const failure = new Error("Unsupported OpenClaw env override");
-  const { dependencies, state } = createRunHarness({
+  const { dependencies, state } = createInstallHarness({
     getSettingsTarget: () => {
       throw failure;
     }

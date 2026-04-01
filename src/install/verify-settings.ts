@@ -1,14 +1,19 @@
 import { stat } from "node:fs/promises";
-import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL, OPENCLAW_PROVIDER_ID } from "../constants/gateway.js";
+import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "../constants/gateway.js";
 import {
-  getSupportedModelByPrimaryRef,
-  SUPPORTED_MODELS,
-  toPrimaryModelRef
+  getManagedModelSelectionByPrimaryRef,
+  listSupportedPrimaryModelRefs
 } from "../constants/models.js";
 import type { SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import { getManagedSettingsSurface, type ManagedSettingsSurface } from "./managed-settings-surface.js";
-import { asPlainObject } from "./object-utils.js";
+import {
+  getDefaultModelSettings,
+  getManagedOpenAIProvider,
+  getModelAllowlist,
+  MANAGED_SETTINGS_PATHS
+} from "./managed-settings-access.js";
+import { formatUnixMode, hasOwnerOnlyPermissions } from "./file-permissions.js";
+import { asPlainObject, type PlainObject } from "./object-utils.js";
 import { validateApiKey } from "./validate-api-key.js";
 
 export interface VerifySettingsResult {
@@ -17,39 +22,39 @@ export interface VerifySettingsResult {
 }
 
 export async function verifySettings(filePath: string, settings: OpenClawConfig): Promise<VerifySettingsResult> {
-  const surface = getManagedSettingsSurface(settings);
-  const provider = getManagedOpenAIProvider(surface, filePath);
-  const baseUrl = requireNonEmptyString(provider.baseUrl, "models.providers.openai.baseUrl", filePath);
-  const api = requireNonEmptyString(provider.api, "models.providers.openai.api", filePath);
-  const apiKey = requireNonEmptyString(provider.apiKey, "models.providers.openai.apiKey", filePath);
-  requireArray(provider.models, "models.providers.openai.models", filePath);
-  const primaryModelRef = getPrimaryModelRef(surface, filePath);
+  const provider = requireManagedOpenAIProvider(settings, filePath);
+  const baseUrl = requireNonEmptyString(provider.baseUrl, MANAGED_SETTINGS_PATHS.openaiBaseUrl, filePath);
+  const api = requireNonEmptyString(provider.api, MANAGED_SETTINGS_PATHS.openaiApi, filePath);
+  const apiKey = requireNonEmptyString(provider.apiKey, MANAGED_SETTINGS_PATHS.openaiApiKey, filePath);
+  requireArray(provider.models, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
+  const primaryModelRef = getPrimaryModelRef(settings, filePath);
 
   if (baseUrl !== GONKAGATE_OPENAI_BASE_URL) {
     throw new Error(
-      `Expected "models.providers.openai.baseUrl" in ${filePath} to be "${GONKAGATE_OPENAI_BASE_URL}", found "${baseUrl}".`
+      `Expected "${MANAGED_SETTINGS_PATHS.openaiBaseUrl}" in ${filePath} to be "${GONKAGATE_OPENAI_BASE_URL}", found "${baseUrl}".`
     );
   }
 
   if (api !== GONKAGATE_OPENAI_API) {
-    throw new Error(`Expected "models.providers.openai.api" in ${filePath} to be "${GONKAGATE_OPENAI_API}", found "${api}".`);
+    throw new Error(`Expected "${MANAGED_SETTINGS_PATHS.openaiApi}" in ${filePath} to be "${GONKAGATE_OPENAI_API}", found "${api}".`);
   }
 
   try {
     validateApiKey(apiKey);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Invalid "models.providers.openai.apiKey" in ${filePath}: ${message}`);
+    throw new Error(`Invalid "${MANAGED_SETTINGS_PATHS.openaiApiKey}" in ${filePath}: ${message}`);
   }
 
-  const selectedModel = getSupportedModelByPrimaryRef(primaryModelRef);
+  const selectedModelState = getManagedModelSelectionByPrimaryRef(primaryModelRef);
 
-  if (!selectedModel) {
-    const allowedRefs = SUPPORTED_MODELS.map((model) => toPrimaryModelRef(model)).join(", ");
-    throw new Error(`Expected "agents.defaults.model.primary" in ${filePath} to be one of: ${allowedRefs}.`);
+  if (!selectedModelState) {
+    throw new Error(
+      `Expected "${MANAGED_SETTINGS_PATHS.primaryModel}" in ${filePath} to be one of: ${listSupportedPrimaryModelRefs().join(", ")}.`
+    );
   }
 
-  verifyModelAllowlistWhenPresent(surface, filePath, selectedModel, primaryModelRef);
+  verifyModelAllowlistWhenPresent(getModelAllowlist(settings), filePath, selectedModelState.selectedModel, selectedModelState.primaryModelRef);
 
   const configMode = (await stat(filePath)).mode & 0o777;
 
@@ -59,50 +64,49 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
 
   return {
     configMode,
-    selectedModel
+    selectedModel: selectedModelState.selectedModel
   };
 }
 
-export function formatUnixMode(mode: number): string {
-  return `0o${mode.toString(8).padStart(3, "0")}`;
-}
+function requireManagedOpenAIProvider(settings: OpenClawConfig, filePath: string): PlainObject {
+  const openaiProvider = getManagedOpenAIProvider(settings);
 
-function getManagedOpenAIProvider(surface: ManagedSettingsSurface, filePath: string): Record<string, unknown> {
-  if (!surface.openaiProvider) {
+  if (!openaiProvider) {
     throw new Error(
-      `Expected "models.providers.${OPENCLAW_PROVIDER_ID}" in ${filePath} to exist. Run "npx @gonkagate/openclaw" to apply GonkaGate settings.`
+      `Expected "${MANAGED_SETTINGS_PATHS.openaiProvider}" in ${filePath} to exist. Run "npx @gonkagate/openclaw" to apply GonkaGate settings.`
     );
   }
 
-  return surface.openaiProvider;
+  return openaiProvider;
 }
 
-function getPrimaryModelRef(surface: ManagedSettingsSurface, filePath: string): string {
-  return requireNonEmptyString(surface.defaultModel?.primary, "agents.defaults.model.primary", filePath);
+function getPrimaryModelRef(settings: OpenClawConfig, filePath: string): string {
+  const defaultModel = getDefaultModelSettings(settings);
+
+  return requireNonEmptyString(defaultModel?.primary, MANAGED_SETTINGS_PATHS.primaryModel, filePath);
 }
 
 function verifyModelAllowlistWhenPresent(
-  surface: ManagedSettingsSurface,
+  allowlist: PlainObject | undefined,
   filePath: string,
   selectedModel: SupportedModel,
   primaryModelRef: string
 ): void {
-  if (!surface.allowlist) {
+  if (!allowlist) {
     return;
   }
 
-  const allowlistEntry = asPlainObject(surface.allowlist[primaryModelRef]);
+  const allowlistEntry = asPlainObject(allowlist[primaryModelRef]);
+  const allowlistEntryPath = `${MANAGED_SETTINGS_PATHS.allowlist}.${primaryModelRef}`;
 
   if (!allowlistEntry) {
     throw new Error(
-      `Expected "agents.defaults.models.${primaryModelRef}" in ${filePath} to exist when "agents.defaults.models" is present.`
+      `Expected "${allowlistEntryPath}" in ${filePath} to exist when "${MANAGED_SETTINGS_PATHS.allowlist}" is present.`
     );
   }
 
   if (allowlistEntry.alias !== selectedModel.key) {
-    throw new Error(
-      `Expected "agents.defaults.models.${primaryModelRef}.alias" in ${filePath} to be "${selectedModel.key}".`
-    );
+    throw new Error(`Expected "${allowlistEntryPath}.alias" in ${filePath} to be "${selectedModel.key}".`);
   }
 }
 
@@ -120,8 +124,4 @@ function requireArray(value: unknown, fieldPath: string, filePath: string): unkn
   }
 
   return value;
-}
-
-function hasOwnerOnlyPermissions(mode: number): boolean {
-  return (mode & 0o077) === 0 && (mode & 0o700) !== 0;
 }

@@ -31,6 +31,14 @@ export const DEFAULT_MODEL = defaultModels[0];
 export const DEFAULT_MODEL_KEY: SupportedModelKey = DEFAULT_MODEL.key;
 export const SUPPORTED_MODEL_KEYS: SupportedModelKey[] = SUPPORTED_MODELS.map((model) => model.key);
 
+export interface ManagedModelSelection {
+  allowlistEntry: {
+    alias: SupportedModelKey;
+  };
+  primaryModelRef: string;
+  selectedModel: SupportedModel;
+}
+
 export function getSupportedModelByKey(key: string): SupportedModel | undefined {
   return SUPPORTED_MODELS.find((model) => model.key === key);
 }
@@ -49,6 +57,26 @@ export function toPrimaryModelRef(model: SupportedModel): string {
   return `${OPENCLAW_PROVIDER_ID}/${model.modelId}`;
 }
 
+export function toManagedModelSelection(selectedModel: SupportedModel): ManagedModelSelection {
+  return {
+    allowlistEntry: {
+      alias: selectedModel.key
+    },
+    primaryModelRef: toPrimaryModelRef(selectedModel),
+    selectedModel
+  };
+}
+
 export function getSupportedModelByPrimaryRef(primaryModelRef: string): SupportedModel | undefined {
-  return SUPPORTED_MODELS.find((model) => toPrimaryModelRef(model) === primaryModelRef);
+  return getManagedModelSelectionByPrimaryRef(primaryModelRef)?.selectedModel;
+}
+
+export function getManagedModelSelectionByPrimaryRef(primaryModelRef: string): ManagedModelSelection | undefined {
+  const selectedModel = SUPPORTED_MODELS.find((model) => toPrimaryModelRef(model) === primaryModelRef);
+
+  return selectedModel ? toManagedModelSelection(selectedModel) : undefined;
+}
+
+export function listSupportedPrimaryModelRefs(): string[] {
+  return SUPPORTED_MODELS.map((model) => toPrimaryModelRef(model));
 }

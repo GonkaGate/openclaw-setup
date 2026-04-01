@@ -1,12 +1,13 @@
-import { chmod, mkdir, stat } from "node:fs/promises";
+import { chmod, mkdir } from "node:fs/promises";
 import path from "node:path";
 import writeFileAtomic from "write-file-atomic";
 import type { OpenClawConfig } from "../types/settings.js";
+import { resolveOwnerOnlyWriteMode } from "./file-permissions.js";
 
 export async function writeSettings(filePath: string, settings: OpenClawConfig): Promise<void> {
   const directory = path.dirname(filePath);
   const content = `${JSON.stringify(settings, null, 2)}\n`;
-  const targetMode = await resolveTargetMode(filePath);
+  const targetMode = await resolveOwnerOnlyWriteMode(filePath);
 
   await mkdir(directory, { recursive: true });
   await writeFileAtomic(filePath, content, {
@@ -15,13 +16,4 @@ export async function writeSettings(filePath: string, settings: OpenClawConfig):
     mode: targetMode
   });
   await chmod(filePath, targetMode);
-}
-
-async function resolveTargetMode(filePath: string): Promise<number> {
-  try {
-    const existingStats = await stat(filePath);
-    return (existingStats.mode & 0o600) || 0o600;
-  } catch {
-    return 0o600;
-  }
 }
