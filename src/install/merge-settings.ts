@@ -2,7 +2,7 @@ import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL, OPENCLAW_PROVIDER_ID }
 import { toManagedModelSelection } from "../constants/models.js";
 import type { SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
-import { createManagedSettingsUpdateState, readManagedSettings } from "./managed-settings-access.js";
+import { readManagedSettingsForUpdate } from "./managed-settings-access.js";
 import { asPlainObject, copyPlainObject } from "./object-utils.js";
 
 export function mergeSettingsWithGonkaGate(
@@ -10,7 +10,7 @@ export function mergeSettingsWithGonkaGate(
   apiKey: string,
   selectedModel: SupportedModel
 ): OpenClawConfig {
-  const managedSettings = createManagedSettingsUpdateState(readManagedSettings(settings, "the loaded OpenClaw config"));
+  const managedSettings = readManagedSettingsForUpdate(settings, "the loaded OpenClaw config");
   const selectedModelState = toManagedModelSelection(selectedModel);
   const existingAllowlistEntry = asPlainObject(managedSettings.allowlist?.[selectedModelState.primaryModelRef]);
   const managedAllowlist = managedSettings.allowlist

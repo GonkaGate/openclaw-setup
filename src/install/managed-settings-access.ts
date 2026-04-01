@@ -20,26 +20,6 @@ export const MANAGED_SETTINGS_PATHS = {
   openaiModels: `${OPENAI_PROVIDER_PATH}.models`
 } as const;
 
-export interface ManagedSettingsView {
-  agentsValue: unknown;
-  agents: PlainObject | undefined;
-  allowlistValue: unknown;
-  allowlist: PlainObject | undefined;
-  defaultModelValue: unknown;
-  defaultModel: PlainObject | undefined;
-  defaultsValue: unknown;
-  defaults: PlainObject | undefined;
-  gatewayValue: unknown;
-  gateway: PlainObject | undefined;
-  modelsValue: unknown;
-  models: PlainObject | undefined;
-  openaiModelsValue: unknown;
-  openaiProviderValue: unknown;
-  openaiProvider: PlainObject | undefined;
-  providersValue: unknown;
-  providers: PlainObject | undefined;
-}
-
 export interface ManagedSettingsSnapshot {
   agents: PlainObject | undefined;
   allowlist: PlainObject | undefined;
@@ -64,65 +44,42 @@ export interface ManagedSettingsUpdateState {
   allowlist?: PlainObject;
 }
 
-export function getManagedSettingsView(settings: OpenClawConfig): ManagedSettingsView {
-  const modelsValue = settings.models;
-  const models = asPlainObject(modelsValue);
-  const providersValue = models?.providers;
-  const providers = asPlainObject(providersValue);
-  const openaiProviderValue = providers?.[OPENCLAW_PROVIDER_ID];
-  const openaiProvider = asPlainObject(openaiProviderValue);
-  const openaiModelsValue = openaiProvider?.models;
+export function readManagedGateway(settings: OpenClawConfig, sourceLabel: string): PlainObject | undefined {
+  return requirePlainObjectWhenPresent(settings.gateway, MANAGED_SETTINGS_PATHS.gateway, sourceLabel);
+}
 
-  const agentsValue = settings.agents;
-  const agents = asPlainObject(agentsValue);
-  const defaultsValue = agents?.defaults;
-  const defaults = asPlainObject(defaultsValue);
-  const defaultModelValue = defaults?.model;
-  const defaultModel = asPlainObject(defaultModelValue);
-  const allowlistValue = defaults?.models;
-  const allowlist = asPlainObject(allowlistValue);
+export function readManagedSettings(settings: OpenClawConfig, sourceLabel: string): ManagedSettingsSnapshot {
+  const models = requirePlainObjectWhenPresent(settings.models, MANAGED_SETTINGS_PATHS.models, sourceLabel);
+  const providers = requirePlainObjectWhenPresent(models?.providers, MANAGED_SETTINGS_PATHS.providers, sourceLabel);
+  const openaiProvider = requirePlainObjectWhenPresent(
+    providers?.[OPENCLAW_PROVIDER_ID],
+    MANAGED_SETTINGS_PATHS.openaiProvider,
+    sourceLabel
+  );
 
-  const gatewayValue = settings.gateway;
-  const gateway = asPlainObject(gatewayValue);
+  const agents = requirePlainObjectWhenPresent(settings.agents, MANAGED_SETTINGS_PATHS.agents, sourceLabel);
+  const defaults = requirePlainObjectWhenPresent(agents?.defaults, MANAGED_SETTINGS_PATHS.defaults, sourceLabel);
+  const defaultModel = requirePlainObjectWhenPresent(defaults?.model, MANAGED_SETTINGS_PATHS.defaultModel, sourceLabel);
+  const allowlist = requirePlainObjectWhenPresent(defaults?.models, MANAGED_SETTINGS_PATHS.allowlist, sourceLabel);
 
   return {
-    agentsValue,
     agents,
-    allowlistValue,
     allowlist,
-    defaultModelValue,
     defaultModel,
-    defaultsValue,
     defaults,
-    gatewayValue,
-    gateway,
-    modelsValue,
+    gateway: readManagedGateway(settings, sourceLabel),
     models,
-    openaiModelsValue,
-    openaiProviderValue,
+    openaiModels: requireArrayWhenPresent(openaiProvider?.models, MANAGED_SETTINGS_PATHS.openaiModels, sourceLabel),
     openaiProvider,
-    providersValue,
     providers
   };
 }
 
-export function readManagedSettings(settings: OpenClawConfig, sourceLabel: string): ManagedSettingsSnapshot {
-  const view = getManagedSettingsView(settings);
-
-  return {
-    agents: requirePlainObjectWhenPresent(view.agentsValue, MANAGED_SETTINGS_PATHS.agents, sourceLabel),
-    allowlist: requirePlainObjectWhenPresent(view.allowlistValue, MANAGED_SETTINGS_PATHS.allowlist, sourceLabel),
-    defaultModel: requirePlainObjectWhenPresent(view.defaultModelValue, MANAGED_SETTINGS_PATHS.defaultModel, sourceLabel),
-    defaults: requirePlainObjectWhenPresent(view.defaultsValue, MANAGED_SETTINGS_PATHS.defaults, sourceLabel),
-    gateway: requirePlainObjectWhenPresent(view.gatewayValue, MANAGED_SETTINGS_PATHS.gateway, sourceLabel),
-    models: requirePlainObjectWhenPresent(view.modelsValue, MANAGED_SETTINGS_PATHS.models, sourceLabel),
-    openaiModels: requireArrayWhenPresent(view.openaiModelsValue, MANAGED_SETTINGS_PATHS.openaiModels, sourceLabel),
-    openaiProvider: requirePlainObjectWhenPresent(view.openaiProviderValue, MANAGED_SETTINGS_PATHS.openaiProvider, sourceLabel),
-    providers: requirePlainObjectWhenPresent(view.providersValue, MANAGED_SETTINGS_PATHS.providers, sourceLabel)
-  };
+export function readManagedSettingsForUpdate(settings: OpenClawConfig, sourceLabel: string): ManagedSettingsUpdateState {
+  return toManagedSettingsUpdateState(readManagedSettings(settings, sourceLabel));
 }
 
-export function createManagedSettingsUpdateState(snapshot: ManagedSettingsSnapshot): ManagedSettingsUpdateState {
+function toManagedSettingsUpdateState(snapshot: ManagedSettingsSnapshot): ManagedSettingsUpdateState {
   return {
     agents: copyPlainObject(snapshot.agents),
     defaults: copyPlainObject(snapshot.defaults),

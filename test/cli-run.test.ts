@@ -13,8 +13,9 @@ const silentOutput = {
 function createGatewayUnavailableInstallResult(): InstallOutcome {
   return {
     configPreparation: {
-      kind: "existing",
-      settings: {}
+      addedLocalGatewayMode: false,
+      settings: {},
+      source: "existing"
     },
     runtime: {
       kind: "gateway_unavailable",

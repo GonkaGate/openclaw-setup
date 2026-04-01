@@ -2,6 +2,9 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "../src/constants/gateway.js";
+import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
+import type { OpenClawConfig } from "../src/types/settings.js";
 
 export async function createTempDirectory(prefix: string): Promise<string> {
   return mkdtemp(path.join(tmpdir(), prefix));
@@ -10,17 +13,6 @@ export async function createTempDirectory(prefix: string): Promise<string> {
 export async function createTempFilePath(prefix: string, fileName = "openclaw.json"): Promise<string> {
   const directory = await createTempDirectory(prefix);
   return path.join(directory, fileName);
-}
-
-export async function withMutedConsoleLog<T>(fn: () => Promise<T> | T): Promise<T> {
-  const originalConsoleLog = console.log;
-  console.log = (() => {}) as typeof console.log;
-
-  try {
-    return await fn();
-  } finally {
-    console.log = originalConsoleLog;
-  }
 }
 
 export async function withCapturedConsoleLog<T>(
@@ -70,6 +62,50 @@ export async function withPatchedTty<T>(
   }
 }
 
+interface ManagedConfigFixtureOptions {
+  allowlist?: Record<string, unknown>;
+  defaults?: Record<string, unknown>;
+  includeAllowlist?: boolean;
+  includeOpenAiModels?: boolean;
+  openaiProvider?: Record<string, unknown>;
+  primaryModelRef?: string;
+}
+
+export function createManagedConfigFixture(options: ManagedConfigFixtureOptions = {}): OpenClawConfig {
+  const primaryModelRef = options.primaryModelRef ?? toPrimaryModelRef(DEFAULT_MODEL);
+  const defaults = asRecord(options.defaults);
+  const defaultModel = asRecord(defaults.model);
+  const allowlist = options.allowlist ?? {
+    [primaryModelRef]: {
+      alias: DEFAULT_MODEL.key
+    }
+  };
+
+  return {
+    models: {
+      providers: {
+        openai: {
+          baseUrl: GONKAGATE_OPENAI_BASE_URL,
+          api: GONKAGATE_OPENAI_API,
+          apiKey: "gp-test-key",
+          ...(options.includeOpenAiModels === false ? {} : { models: [] }),
+          ...options.openaiProvider
+        }
+      }
+    },
+    agents: {
+      defaults: {
+        ...defaults,
+        model: {
+          ...defaultModel,
+          primary: primaryModelRef
+        },
+        ...(options.includeAllowlist ? { models: allowlist } : {})
+      }
+    }
+  };
+}
+
 function restoreProperty(target: object, property: string, descriptor: PropertyDescriptor | undefined): void {
   if (descriptor) {
     Object.defineProperty(target, property, descriptor);
@@ -77,4 +113,10 @@ function restoreProperty(target: object, property: string, descriptor: PropertyD
   }
 
   Reflect.deleteProperty(target, property);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }

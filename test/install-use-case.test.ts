@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_MODEL, DEFAULT_MODEL_KEY, toPrimaryModelRef } from "../src/constants/models.js";
+import type { OpenClawConfig } from "../src/types/settings.js";
 import {
   runInstallUseCase,
   type InstallUseCaseDependencies
@@ -32,6 +33,27 @@ interface InstallHarnessState {
   writePaths: string[];
   order: string[];
   writtenSettings?: Record<string, unknown>;
+}
+
+function createGatewayBootstrapResult(settings: OpenClawConfig, addedLocalGatewayMode: boolean) {
+  return {
+    addedLocalGatewayMode,
+    settings
+  };
+}
+
+function withLocalGatewayMode(settings: OpenClawConfig): OpenClawConfig {
+  return {
+    ...settings,
+    gateway: {
+      ...((settings.gateway as Record<string, unknown>) ?? {}),
+      mode: "local"
+    }
+  };
+}
+
+function recordStep(state: InstallHarnessState, step: string): void {
+  state.order.push(step);
 }
 
 function createHealthyRuntimeResult() {
@@ -82,16 +104,16 @@ function createInstallHarness(
   const openClaw: InstallUseCaseDependencies["openClaw"] = {
     ensureInstalled: () => {
       state.ensureCalls += 1;
-      state.order.push("ensure");
+      recordStep(state, "ensure");
     },
     initializeBaseConfig: () => {
       state.setupCalls += 1;
-      state.order.push("setup");
+      recordStep(state, "setup");
     },
     validateConfig: (filePath) => {
       state.configValidationCalls += 1;
       state.configValidationPaths.push(filePath);
-      state.order.push("validateOpenClawConfig");
+      recordStep(state, "validateOpenClawConfig");
     },
     ...overrides.openClaw
   };
@@ -100,26 +122,18 @@ function createInstallHarness(
     createBackup: async (filePath) => {
       state.backupCalls += 1;
       state.backupPaths.push(filePath);
-      state.order.push("backup");
+      recordStep(state, "backup");
       return "/tmp/openclaw.json.backup";
     },
     ensureFreshInstallLocalGateway: (settings) => {
       state.gatewayBootstrapCalls += 1;
-      state.order.push("bootstrapGateway");
-      return {
-        kind: "added_local_mode",
-        settings: {
-          ...settings,
-          gateway: {
-            mode: "local"
-          }
-        }
-      };
+      recordStep(state, "bootstrapGateway");
+      return createGatewayBootstrapResult(withLocalGatewayMode(settings), true);
     },
     loadSettings: async (filePath) => {
       state.loadCalls += 1;
       state.loadPaths.push(filePath);
-      state.order.push("load");
+      recordStep(state, "load");
       return {
         kind: "loaded",
         settings: {}
@@ -128,23 +142,23 @@ function createInstallHarness(
     openClaw,
     promptForApiKey: async () => {
       state.promptApiKeyCalls += 1;
-      state.order.push("promptApiKey");
+      recordStep(state, "promptApiKey");
       return "gp-test-key";
     },
     promptForModel: async () => {
       state.promptModelCalls += 1;
-      state.order.push("promptModel");
+      recordStep(state, "promptModel");
       return DEFAULT_MODEL;
     },
     validateApiKey: (apiKey) => {
       state.validateCalls += 1;
-      state.order.push("validateApiKey");
+      recordStep(state, "validateApiKey");
       return apiKey;
     },
     validateSettingsBeforeWrite: async (filePath) => {
       state.prewriteValidationCalls += 1;
       state.prewriteValidationPaths.push(filePath);
-      state.order.push("validateSettingsBeforeWrite");
+      recordStep(state, "validateSettingsBeforeWrite");
     },
     verifyOpenClawRuntimeForInstall: (filePath, expectedPrimaryModelRef) => {
       state.runtimeVerifyCalls += 1;
@@ -152,13 +166,13 @@ function createInstallHarness(
         expectedPrimaryModelRef,
         filePath
       });
-      state.order.push("verifyRuntime");
+      recordStep(state, "verifyRuntime");
       return createHealthyRuntimeResult();
     },
     writeSettings: async (filePath, settings) => {
       state.writeCalls += 1;
       state.writePaths.push(filePath);
-      state.order.push("write");
+      recordStep(state, "write");
       state.writtenSettings = settings as Record<string, unknown>;
     },
     ...overrides.dependencies,
@@ -177,7 +191,7 @@ test("runInstallUseCase initializes missing OpenClaw config automatically and sk
   let backupCalls = 0;
   let writtenSettings: Record<string, unknown> | undefined;
 
-  await runInstallUseCase(
+  const result = await runInstallUseCase(
     {
       targetPath: "/tmp/openclaw.json"
     },
@@ -186,16 +200,7 @@ test("runInstallUseCase initializes missing OpenClaw config automatically and sk
         backupCalls += 1;
         return "/tmp/should-not-exist.backup";
       },
-      ensureFreshInstallLocalGateway: (settings) => ({
-        kind: "added_local_mode",
-        settings: {
-          ...settings,
-          gateway: {
-            ...((settings.gateway as Record<string, unknown>) ?? {}),
-            mode: "local"
-          }
-        }
-      }),
+      ensureFreshInstallLocalGateway: (settings) => createGatewayBootstrapResult(withLocalGatewayMode(settings), true),
       loadSettings: async () => {
         loadCount += 1;
 
@@ -242,6 +247,8 @@ test("runInstallUseCase initializes missing OpenClaw config automatically and sk
   assert.equal(setupCalls, 1);
   assert.equal(loadCount, 2);
   assert.equal(backupCalls, 0);
+  assert.equal(result.configPreparation.source, "fresh");
+  assert.equal(result.configPreparation.addedLocalGatewayMode, true);
   assert.deepEqual(writtenSettings, {
     agents: {
       defaults: {
@@ -273,16 +280,13 @@ test("runInstallUseCase initializes missing OpenClaw config automatically and sk
 test("runInstallUseCase preserves an existing gateway.mode from fresh OpenClaw setup output", async () => {
   let writtenSettings: Record<string, unknown> | undefined;
 
-  await runInstallUseCase(
+  const result = await runInstallUseCase(
     {
       targetPath: "/tmp/openclaw.json"
     },
     {
       createBackup: async () => "/tmp/openclaw.json.backup",
-      ensureFreshInstallLocalGateway: (settings) => ({
-        kind: "preserved_existing_mode",
-        settings
-      }),
+      ensureFreshInstallLocalGateway: (settings) => createGatewayBootstrapResult(settings, false),
       loadSettings: (() => {
         let loadCount = 0;
 
@@ -322,6 +326,8 @@ test("runInstallUseCase preserves an existing gateway.mode from fresh OpenClaw s
     }
   );
 
+  assert.equal(result.configPreparation.source, "fresh");
+  assert.equal(result.configPreparation.addedLocalGatewayMode, false);
   assert.deepEqual(writtenSettings?.gateway, {
     bind: "loopback",
     mode: "trusted-proxy"
@@ -333,7 +339,7 @@ test("runInstallUseCase does not rewrite gateway.mode for existing configs", asy
     dependencies: {
       loadSettings: async () => {
         state.loadCalls += 1;
-        state.order.push("load");
+        recordStep(state, "load");
         return {
           kind: "loaded",
           settings: {
@@ -476,10 +482,7 @@ test("runInstallUseCase surfaces a clear error when OpenClaw setup does not crea
       },
       {
         createBackup: async () => "/tmp/openclaw.json.backup",
-        ensureFreshInstallLocalGateway: (settings) => ({
-          kind: "added_local_mode",
-          settings
-        }),
+        ensureFreshInstallLocalGateway: (settings) => createGatewayBootstrapResult(settings, true),
         loadSettings: async () => {
           loadCount += 1;
           return {
@@ -519,7 +522,7 @@ test("runInstallUseCase stops before prompting when the current OpenClaw config 
       validateConfig: (filePath) => {
         state.configValidationCalls += 1;
         state.configValidationPaths.push(filePath);
-        state.order.push("validateOpenClawConfig");
+        recordStep(state, "validateOpenClawConfig");
         throw failure;
       }
     }

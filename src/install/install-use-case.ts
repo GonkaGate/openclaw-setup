@@ -15,25 +15,11 @@ import {
 } from "./verify-runtime.js";
 import { writeSettings as writeSettingsImpl } from "./write-settings.js";
 
-interface ExistingConfigPreparationResult {
-  kind: "existing";
+export interface InstallConfigPreparationResult {
+  addedLocalGatewayMode: boolean;
   settings: OpenClawConfig;
+  source: "existing" | "fresh";
 }
-
-interface FreshConfigWithExistingGatewayResult {
-  kind: "fresh_preserved_gateway";
-  settings: OpenClawConfig;
-}
-
-interface FreshConfigWithLocalGatewayResult {
-  kind: "fresh_added_local_gateway";
-  settings: OpenClawConfig;
-}
-
-export type InstallConfigPreparationResult =
-  | ExistingConfigPreparationResult
-  | FreshConfigWithExistingGatewayResult
-  | FreshConfigWithLocalGatewayResult;
 
 export interface InstallRequest {
   modelKey?: SupportedModelKey;
@@ -90,7 +76,7 @@ export async function runInstallUseCase(
   const mergedSettings = mergeSettingsWithGonkaGate(configPreparation.settings, apiKey, selectedModel);
 
   await dependencies.validateSettingsBeforeWrite(request.targetPath, mergedSettings);
-  const backupPath = configPreparation.kind === "existing" ? await dependencies.createBackup(request.targetPath) : undefined;
+  const backupPath = configPreparation.source === "existing" ? await dependencies.createBackup(request.targetPath) : undefined;
 
   await dependencies.writeSettings(request.targetPath, mergedSettings);
   const runtime = dependencies.verifyOpenClawRuntimeForInstall(request.targetPath, toPrimaryModelRef(selectedModel));
@@ -112,8 +98,9 @@ async function prepareInstallConfig(
 
   if (initialLoad.kind === "loaded") {
     return {
-      kind: "existing",
-      settings: initialLoad.settings
+      addedLocalGatewayMode: false,
+      settings: initialLoad.settings,
+      source: "existing"
     };
   }
 
@@ -125,15 +112,9 @@ async function prepareInstallConfig(
   );
   const gatewayBootstrap = dependencies.ensureFreshInstallLocalGateway(loadedSettings.settings);
 
-  if (gatewayBootstrap.kind === "added_local_mode") {
-    return {
-      kind: "fresh_added_local_gateway",
-      settings: gatewayBootstrap.settings
-    };
-  }
-
   return {
-    kind: "fresh_preserved_gateway",
-    settings: gatewayBootstrap.settings
+    addedLocalGatewayMode: gatewayBootstrap.addedLocalGatewayMode,
+    settings: gatewayBootstrap.settings,
+    source: "fresh"
   };
 }

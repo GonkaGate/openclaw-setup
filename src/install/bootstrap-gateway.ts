@@ -1,34 +1,27 @@
 import type { OpenClawConfig } from "../types/settings.js";
-import { getManagedSettingsView } from "./managed-settings-access.js";
+import { readManagedGateway } from "./managed-settings-access.js";
 import { copyPlainObject } from "./object-utils.js";
 
-interface ExistingGatewayModeResult {
-  kind: "preserved_existing_mode";
+export interface FreshInstallGatewayBootstrapResult {
+  addedLocalGatewayMode: boolean;
   settings: OpenClawConfig;
 }
-
-interface AddedLocalGatewayModeResult {
-  kind: "added_local_mode";
-  settings: OpenClawConfig;
-}
-
-export type FreshInstallGatewayBootstrapResult = ExistingGatewayModeResult | AddedLocalGatewayModeResult;
 
 export function ensureFreshInstallLocalGateway(settings: OpenClawConfig): FreshInstallGatewayBootstrapResult {
-  const existingGateway = copyPlainObject(getManagedSettingsView(settings).gateway);
+  const existingGateway = copyPlainObject(readManagedGateway(settings, "the loaded OpenClaw config"));
   const existingMode = typeof existingGateway.mode === "string" && existingGateway.mode.trim().length > 0
     ? existingGateway.mode
     : undefined;
 
   if (existingMode) {
     return {
-      kind: "preserved_existing_mode",
+      addedLocalGatewayMode: false,
       settings
     };
   }
 
   return {
-    kind: "added_local_mode",
+    addedLocalGatewayMode: true,
     settings: {
       ...settings,
       gateway: {

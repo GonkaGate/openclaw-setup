@@ -120,14 +120,6 @@ function requireNonEmptyString(value: unknown, fieldPath: string, filePath: stri
   return value;
 }
 
-function requireArray(value: unknown, fieldPath: string, filePath: string): unknown[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`Expected "${fieldPath}" in ${filePath} to be a JSON5 array.`);
-  }
-
-  return value;
-}
-
 function requirePresentArray(value: unknown[] | undefined, fieldPath: string, filePath: string): unknown[] {
   if (!value) {
     throw new Error(`Expected "${fieldPath}" in ${filePath} to be a JSON5 array.`);

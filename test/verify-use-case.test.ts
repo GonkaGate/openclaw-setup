@@ -6,7 +6,7 @@ import {
   runVerifyUseCase,
   type VerifyUseCaseDependencies
 } from "../src/install/verify-use-case.js";
-import { createTempFilePath } from "./test-helpers.js";
+import { createManagedConfigFixture, createTempFilePath } from "./test-helpers.js";
 
 interface RuntimeVerifyInput {
   expectedPrimaryModelRef: string;
@@ -24,6 +24,10 @@ interface VerifyHarnessState {
   verifyCalls: number;
   verifyPaths: string[];
   order: string[];
+}
+
+function recordStep(state: VerifyHarnessState, step: string): void {
+  state.order.push(step);
 }
 
 function createVerifyHarness(
@@ -51,12 +55,12 @@ function createVerifyHarness(
   const openClaw: VerifyUseCaseDependencies["openClaw"] = {
     ensureInstalled: () => {
       state.ensureCalls += 1;
-      state.order.push("ensure");
+      recordStep(state, "ensure");
     },
     validateConfig: (filePath) => {
       state.configValidationCalls += 1;
       state.configValidationPaths.push(filePath);
-      state.order.push("validateOpenClawConfig");
+      recordStep(state, "validateOpenClawConfig");
     },
     ...overrides.openClaw
   };
@@ -65,7 +69,7 @@ function createVerifyHarness(
     loadSettings: async (filePath) => {
       state.loadCalls += 1;
       state.loadPaths.push(filePath);
-      state.order.push("load");
+      recordStep(state, "load");
       return {
         kind: "loaded",
         settings: {}
@@ -78,7 +82,7 @@ function createVerifyHarness(
         expectedPrimaryModelRef,
         filePath
       });
-      state.order.push("verifyRuntime");
+      recordStep(state, "verifyRuntime");
       return {
         kind: "healthy",
         resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
@@ -87,7 +91,7 @@ function createVerifyHarness(
     verifySettings: async (filePath) => {
       state.verifyCalls += 1;
       state.verifyPaths.push(filePath);
-      state.order.push("verify");
+      recordStep(state, "verify");
       return {
         configMode: 0o600,
         selectedModel: DEFAULT_MODEL
@@ -140,7 +144,7 @@ test("runVerifyUseCase stays strict when the Gateway is unavailable", async () =
     dependencies: {
       verifyOpenClawRuntimeForVerify: () => {
         state.runtimeVerifyCalls += 1;
-        state.order.push("verifyRuntime");
+        recordStep(state, "verifyRuntime");
         throw new Error("gateway offline");
       }
     }
@@ -162,7 +166,7 @@ test("runVerifyUseCase fails clearly when the OpenClaw config does not exist yet
     dependencies: {
       loadSettings: async () => {
         state.loadCalls += 1;
-        state.order.push("load");
+        recordStep(state, "load");
         return {
           kind: "missing"
         };
@@ -222,30 +226,9 @@ test("runVerifyUseCase succeeds against a real temp config without mutating it",
     {
       loadSettings: async () => ({
         kind: "loaded",
-        settings: {
-          models: {
-            providers: {
-              openai: {
-                baseUrl: "https://api.gonkagate.com/v1",
-                api: "openai-completions",
-                apiKey: "gp-test-key",
-                models: []
-              }
-            }
-          },
-          agents: {
-            defaults: {
-              model: {
-                primary: toPrimaryModelRef(DEFAULT_MODEL)
-              },
-              models: {
-                [toPrimaryModelRef(DEFAULT_MODEL)]: {
-                  alias: DEFAULT_MODEL.key
-                }
-              }
-            }
-          }
-        }
+        settings: createManagedConfigFixture({
+          includeAllowlist: true
+        })
       }),
       openClaw: {
         ensureInstalled: () => {},

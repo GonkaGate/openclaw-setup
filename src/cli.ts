@@ -141,11 +141,11 @@ function printSuccess(targetPath: string, selectedModel: SupportedModel, result:
   console.log(`Config: ${targetPath}`);
   console.log(`Model: ${selectedModel.displayName} (${selectedModel.modelId})`);
 
-  if (result.configPreparation.kind !== "existing") {
+  if (result.configPreparation.source === "fresh") {
     console.log("Base setup: initialized automatically with OpenClaw defaults");
   }
 
-  if (result.configPreparation.kind === "fresh_added_local_gateway") {
+  if (result.configPreparation.addedLocalGatewayMode) {
     console.log('Gateway mode: set to "local" for first-run local startup');
   }
 

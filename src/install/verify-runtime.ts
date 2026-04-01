@@ -2,10 +2,11 @@ import {
   createOpenClawClient,
   type GatewayRpcProbeResult,
   type HealthSnapshotProbeResult,
+  type OpenClawClient,
   type OpenClawClientCommandRunner,
   type ResolvedPrimaryModelProbeResult
 } from "./openclaw-client.js";
-import { runOpenClawCommand, type OpenClawCommandResult } from "./openclaw-command.js";
+import { runOpenClawCommand } from "./openclaw-command.js";
 
 const NEXT_GATEWAY_COMMAND = "openclaw gateway" as const;
 const VERIFY_COMMAND = "npx @gonkagate/openclaw verify";
@@ -37,8 +38,17 @@ interface FailedRuntimeVerificationResult {
   message: string;
 }
 
-export type RuntimeCommandResult = OpenClawCommandResult;
-export type RuntimeCommandRunner = (command: string, args: string[]) => RuntimeCommandResult;
+type RuntimeProbeResult = GatewayRpcProbeResult | HealthSnapshotProbeResult | ResolvedPrimaryModelProbeResult;
+type RuntimeProbeClient = Pick<OpenClawClient, "probeGatewayRpc" | "probeHealthSnapshot" | "probeResolvedPrimaryModel">;
+
+interface RuntimeStep<Result extends RuntimeProbeResult> {
+  commandFailureKind: RuntimeVerificationFailureKind;
+  commandFailureMessage: string;
+  probe: () => Result;
+  validate: (result: Result) => FailedRuntimeVerificationResult | undefined;
+}
+
+export type RuntimeCommandRunner = OpenClawClientCommandRunner;
 export type VerifyRuntimeResult = HealthyRuntimeVerificationResult | FailedRuntimeVerificationResult;
 export type InstallRuntimeCheckResult = HealthyRuntimeVerificationResult | GatewayUnavailableInstallRuntimeResult;
 
@@ -47,20 +57,77 @@ export function verifyOpenClawRuntime(
   expectedPrimaryModelRef: string,
   runCommand: RuntimeCommandRunner = runOpenClawCommand
 ): VerifyRuntimeResult {
-  const openClawClient = createRuntimeProbeClient(runCommand);
-  const gatewayFailure = verifyGatewayRpc(openClawClient);
+  const openClawClient: RuntimeProbeClient = createOpenClawClient({ runCommand });
 
-  if (gatewayFailure) {
-    return gatewayFailure;
+  const gatewayResult = runRuntimeStep({
+    commandFailureKind: RUNTIME_KIND.gatewayUnavailable,
+    commandFailureMessage:
+      'Unable to confirm that the local OpenClaw Gateway RPC is healthy through "openclaw gateway status --require-rpc --json". ' +
+      `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`,
+    probe: () => openClawClient.probeGatewayRpc(),
+    validate: (result) => {
+      if (result.rpcOk === true) {
+        return undefined;
+      }
+
+      return createFailedRuntimeResult(
+        RUNTIME_KIND.gatewayUnavailable,
+        formatCommandFailure(
+          'OpenClaw did not report a healthy Gateway RPC through "openclaw gateway status --require-rpc --json". ' +
+            `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`,
+          result
+        )
+      );
+    }
+  });
+
+  if (isRuntimeFailure(gatewayResult)) {
+    return gatewayResult;
   }
 
-  const healthFailure = verifyHealthSnapshot(openClawClient);
+  const healthResult = runRuntimeStep({
+    commandFailureKind: RUNTIME_KIND.runtimeUnhealthy,
+    commandFailureMessage:
+      `Unable to confirm OpenClaw health through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
+    probe: () => openClawClient.probeHealthSnapshot(),
+    validate: (result) => {
+      if (result.ok === true) {
+        return undefined;
+      }
 
-  if (healthFailure) {
-    return healthFailure;
+      return createFailedRuntimeResult(
+        RUNTIME_KIND.runtimeUnhealthy,
+        formatCommandFailure(
+          `OpenClaw reported an unhealthy runtime through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
+          result
+        )
+      );
+    }
+  });
+
+  if (isRuntimeFailure(healthResult)) {
+    return healthResult;
   }
 
-  return verifyResolvedPrimaryModel(filePath, expectedPrimaryModelRef, openClawClient);
+  const resolvedModelResult = runRuntimeStep({
+    commandFailureKind: RUNTIME_KIND.modelResolutionFailed,
+    commandFailureMessage:
+      `Unable to confirm the resolved primary model through "openclaw models status --plain". Rerun "${VERIFY_COMMAND}" after OpenClaw finishes loading the config.`,
+    probe: () => openClawClient.probeResolvedPrimaryModel(),
+    validate: (result) => verifyResolvedPrimaryModel(filePath, expectedPrimaryModelRef, result)
+  });
+
+  if (isRuntimeFailure(resolvedModelResult)) {
+    return resolvedModelResult;
+  }
+
+  const resolvedPrimaryModelRef = resolvedModelResult.resolvedPrimaryModelRef;
+
+  if (!resolvedPrimaryModelRef) {
+    throw new Error('Resolved primary model verification succeeded without a value from "openclaw models status --plain".');
+  }
+
+  return createHealthyRuntimeResult(resolvedPrimaryModelRef);
 }
 
 export function verifyOpenClawRuntimeForInstall(
@@ -96,7 +163,7 @@ export function verifyOpenClawRuntimeForVerify(
 }
 
 function getCommandFailure(
-  result: GatewayRpcProbeResult | HealthSnapshotProbeResult | ResolvedPrimaryModelProbeResult,
+  result: RuntimeProbeResult,
   kind: RuntimeVerificationFailureKind,
   baseMessage: string
 ): FailedRuntimeVerificationResult | undefined {
@@ -107,87 +174,17 @@ function getCommandFailure(
   return createFailedRuntimeResult(kind, formatCommandFailure(baseMessage, result));
 }
 
-function formatCommandFailure(
-  baseMessage: string,
-  result: GatewayRpcProbeResult | HealthSnapshotProbeResult | ResolvedPrimaryModelProbeResult
-): string {
+function formatCommandFailure(baseMessage: string, result: RuntimeProbeResult): string {
   const outputSuffix = result.output.length > 0 ? `\n\nOpenClaw output:\n${result.output}` : "";
 
   return `${baseMessage}${outputSuffix}`;
 }
 
-function verifyGatewayRpc(
-  openClawClient: ReturnType<typeof createRuntimeProbeClient>
-): FailedRuntimeVerificationResult | undefined {
-  const gatewayStatusResult = openClawClient.probeGatewayRpc();
-  const commandFailure = getCommandFailure(
-    gatewayStatusResult,
-    RUNTIME_KIND.gatewayUnavailable,
-    'Unable to confirm that the local OpenClaw Gateway RPC is healthy through "openclaw gateway status --require-rpc --json". ' +
-      `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`
-  );
-
-  if (commandFailure) {
-    return commandFailure;
-  }
-
-  if (gatewayStatusResult.rpcOk === true) {
-    return undefined;
-  }
-
-  return createFailedRuntimeResult(
-    RUNTIME_KIND.gatewayUnavailable,
-    formatCommandFailure(
-      'OpenClaw did not report a healthy Gateway RPC through "openclaw gateway status --require-rpc --json". ' +
-        `Start OpenClaw normally, then rerun "${VERIFY_COMMAND}".`,
-      gatewayStatusResult
-    )
-  );
-}
-
-function verifyHealthSnapshot(
-  openClawClient: ReturnType<typeof createRuntimeProbeClient>
-): FailedRuntimeVerificationResult | undefined {
-  const healthResult = openClawClient.probeHealthSnapshot();
-  const commandFailure = getCommandFailure(
-    healthResult,
-    RUNTIME_KIND.runtimeUnhealthy,
-    `Unable to confirm OpenClaw health through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`
-  );
-
-  if (commandFailure) {
-    return commandFailure;
-  }
-
-  if (healthResult.ok === true) {
-    return undefined;
-  }
-
-  return createFailedRuntimeResult(
-    RUNTIME_KIND.runtimeUnhealthy,
-    formatCommandFailure(
-      `OpenClaw reported an unhealthy runtime through "openclaw health --json". Rerun "${VERIFY_COMMAND}" after the Gateway is healthy.`,
-      healthResult
-    )
-  );
-}
-
 function verifyResolvedPrimaryModel(
   filePath: string,
   expectedPrimaryModelRef: string,
-  openClawClient: ReturnType<typeof createRuntimeProbeClient>
-): VerifyRuntimeResult {
-  const modelsStatusResult = openClawClient.probeResolvedPrimaryModel();
-  const commandFailure = getCommandFailure(
-    modelsStatusResult,
-    RUNTIME_KIND.modelResolutionFailed,
-    `Unable to confirm the resolved primary model through "openclaw models status --plain". Rerun "${VERIFY_COMMAND}" after OpenClaw finishes loading the config.`
-  );
-
-  if (commandFailure) {
-    return commandFailure;
-  }
-
+  modelsStatusResult: ResolvedPrimaryModelProbeResult
+): FailedRuntimeVerificationResult | undefined {
   const resolvedPrimaryModelRef = modelsStatusResult.resolvedPrimaryModelRef;
 
   if (!resolvedPrimaryModelRef) {
@@ -205,7 +202,7 @@ function verifyResolvedPrimaryModel(
     );
   }
 
-  return createHealthyRuntimeResult(resolvedPrimaryModelRef);
+  return undefined;
 }
 
 function createHealthyRuntimeResult(resolvedPrimaryModelRef: string): HealthyRuntimeVerificationResult {
@@ -232,10 +229,19 @@ function createFailedRuntimeResult(
   };
 }
 
-function createRuntimeProbeClient(runCommand: RuntimeCommandRunner) {
-  const adaptedRunner: OpenClawClientCommandRunner = (command, args) => runCommand(command, args);
+function runRuntimeStep<Result extends RuntimeProbeResult>(
+  step: RuntimeStep<Result>
+): Result | FailedRuntimeVerificationResult {
+  const result = step.probe();
+  const commandFailure = getCommandFailure(result, step.commandFailureKind, step.commandFailureMessage);
 
-  return createOpenClawClient({
-    runCommand: adaptedRunner
-  });
+  if (commandFailure) {
+    return commandFailure;
+  }
+
+  return step.validate(result) ?? result;
+}
+
+function isRuntimeFailure(value: unknown): value is FailedRuntimeVerificationResult {
+  return typeof value === "object" && value !== null && "message" in value;
 }
