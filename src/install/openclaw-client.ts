@@ -46,7 +46,7 @@ export const OPENCLAW_COMMANDS = {
   resolvedPrimaryModel: {
     args: ["models", "status", "--plain"],
     description: "openclaw models status --plain",
-    expectedShape: "a single non-empty model ref line"
+    expectedShape: "output containing exactly one provider/model ref line"
   },
   validateConfig: {
     args: ["config", "validate", "--json"],
@@ -552,8 +552,11 @@ function parseResolvedPrimaryModelReport(stdout: string):
     .split(/\r?\n/u)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
+  const candidateLines = Array.from(
+    new Set(lines.filter((line) => isLikelyResolvedPrimaryModelRef(line)))
+  );
 
-  if (lines.length !== 1 || /\s/u.test(lines[0])) {
+  if (candidateLines.length !== 1) {
     return {
       reportKind: "unparsed",
       reason: "invalid_shape"
@@ -562,8 +565,12 @@ function parseResolvedPrimaryModelReport(stdout: string):
 
   return {
     reportKind: "parsed",
-    resolvedPrimaryModelRef: lines[0]
+    resolvedPrimaryModelRef: candidateLines[0]
   };
+}
+
+function isLikelyResolvedPrimaryModelRef(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*\/\S+$/u.test(value);
 }
 
 function parseJsonObject(stdout: string): ParsedJsonObjectResult | UnparsedJsonObjectResult {

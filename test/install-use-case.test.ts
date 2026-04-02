@@ -386,6 +386,28 @@ test("runInstallUseCase creates a backup once before writing when updating an ex
   assert.equal(state.order.indexOf("backup") < state.order.indexOf("write"), true);
 });
 
+test("runInstallUseCase uses a resolved legacy target path consistently across load, validation, backup, write, and runtime checks", async () => {
+  const { dependencies, state } = createInstallHarness();
+  const targetPath = "/tmp/.clawdbot/clawdbot.json";
+
+  const result = await runInstallUseCase({
+    targetPath
+  }, dependencies);
+
+  assert.deepEqual(state.loadPaths, [targetPath]);
+  assert.deepEqual(state.configValidationPaths, [targetPath]);
+  assert.deepEqual(state.prewriteValidationPaths, [targetPath]);
+  assert.deepEqual(state.backupPaths, [targetPath]);
+  assert.deepEqual(state.writePaths, [targetPath]);
+  assert.deepEqual(state.runtimeVerifyInputs, [
+    {
+      expectedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
+      filePath: targetPath
+    }
+  ]);
+  assert.equal(result.targetPath, targetPath);
+});
+
 test("runInstallUseCase succeeds after writing a config when the Gateway is not running yet", async () => {
   const { dependencies, state } = createInstallHarness({
     openClaw: {

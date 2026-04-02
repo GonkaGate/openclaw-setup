@@ -162,7 +162,7 @@ test("createOpenClawClient keeps parsed-output metadata on non-zero probe exits"
   assert.equal("resolvedPrimaryModelRef" in resolvedModelFailure, false);
 });
 
-test("createOpenClawClient parses a single resolved model line and rejects multiline output", () => {
+test("createOpenClawClient parses a single resolved model line and tolerates non-model log noise", () => {
   const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
   const parsedResult = createProbeClient([
     { status: 0, stdout: `${expectedPrimaryModelRef}\n` }
@@ -176,13 +176,31 @@ test("createOpenClawClient parses a single resolved model line and rejects multi
     status: 0
   });
 
+  const noisyResult = createProbeClient([
+    {
+      status: 0,
+      stdout: `[agents/auth-profiles] synced openai-codex credentials from external cli\n${expectedPrimaryModelRef}\n`
+    }
+  ]).probeResolvedPrimaryModel();
+
+  assert.deepEqual(noisyResult, {
+    commandStatus: "succeeded",
+    output: `[agents/auth-profiles] synced openai-codex credentials from external cli\n${expectedPrimaryModelRef}`,
+    reportKind: "parsed",
+    resolvedPrimaryModelRef: expectedPrimaryModelRef,
+    status: 0
+  });
+});
+
+test("createOpenClawClient rejects resolved-model output that contains multiple model refs", () => {
+  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
   const unparsedResult = createProbeClient([
-    { status: 0, stdout: `${expectedPrimaryModelRef}\nwarning: extra line\n` }
+    { status: 0, stdout: `${expectedPrimaryModelRef}\nopenai/other-model\n` }
   ]).probeResolvedPrimaryModel();
 
   assert.deepEqual(unparsedResult, {
     commandStatus: "succeeded",
-    output: `${expectedPrimaryModelRef}\nwarning: extra line`,
+    output: `${expectedPrimaryModelRef}\nopenai/other-model`,
     reason: "invalid_shape",
     reportKind: "unparsed",
     status: 0
@@ -311,10 +329,10 @@ test("verifyOpenClawRuntime rejects empty resolved-model output", () => {
   }
 
   assert.equal(result.kind, "unexpected_output");
-  assert.match(result.message, /single non-empty model ref line/);
+  assert.match(result.message, /exactly one provider\/model ref line/);
 });
 
-test("verifyOpenClawRuntime rejects multiline resolved-model output as unexpected", () => {
+test("verifyOpenClawRuntime rejects ambiguous resolved-model output as unexpected", () => {
   const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
@@ -322,12 +340,12 @@ test("verifyOpenClawRuntime rejects multiline resolved-model output as unexpecte
     createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":true}' },
-      { status: 0, stdout: `${expectedPrimaryModelRef}\nwarning: extra line\n` }
+      { status: 0, stdout: `${expectedPrimaryModelRef}\nopenai/other-model\n` }
     ])
   );
 
   if (result.kind === "healthy") {
-    assert.fail("Expected verifyOpenClawRuntime to reject multiline model output");
+    assert.fail("Expected verifyOpenClawRuntime to reject ambiguous model output");
   }
 
   assert.equal(result.kind, "unexpected_output");

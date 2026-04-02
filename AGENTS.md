@@ -59,8 +59,8 @@ These decisions are part of the repo contract. Changing them is not a small refa
 - the follow-up verification UX is `npx @gonkagate/openclaw verify`
 - API key entry must remain interactive and hidden
 - the installer writes OpenClaw config, not shell env and not shell rc files
-- the active target path is resolved locally with this precedence:
-  `OPENCLAW_CONFIG_PATH`, then `OPENCLAW_STATE_DIR/openclaw.json`, then `OPENCLAW_HOME/.openclaw/openclaw.json`, then default `~/.openclaw/openclaw.json`
+- the active target path is resolved locally with this stable-upstream-compatible order:
+  `OPENCLAW_CONFIG_PATH`; else, inside `OPENCLAW_STATE_DIR` when set, prefer existing `openclaw.json` then `clawdbot.json` and fall back to `openclaw.json`; else under the resolved home (`OPENCLAW_HOME` or `~`) prefer the first existing of `.openclaw/openclaw.json`, `.openclaw/clawdbot.json`, `.clawdbot/openclaw.json`, `.clawdbot/clawdbot.json`, and fall back to `.openclaw/openclaw.json`
 - the code must not use `openclaw config file` as the source of truth for target path resolution
 - if the resolved config is missing, the installer bootstraps it through `openclaw setup`
 - true first-run installs may add `gateway.mode: "local"` when OpenClaw setup left gateway mode unset
@@ -277,9 +277,9 @@ It must:
 Defines the OpenClaw config file path:
 
 - `OPENCLAW_CONFIG_PATH`
-- else `OPENCLAW_STATE_DIR/openclaw.json`
-- else `OPENCLAW_HOME/.openclaw/openclaw.json`
-- else `~/.openclaw/openclaw.json`
+- else, inside `OPENCLAW_STATE_DIR` when set, prefer existing `openclaw.json` then `clawdbot.json` and fall back to `openclaw.json`
+- else, under the resolved home (`OPENCLAW_HOME` or `~`), prefer the first existing of `.openclaw/openclaw.json`, `.openclaw/clawdbot.json`, `.clawdbot/openclaw.json`, `.clawdbot/clawdbot.json`
+- else fall back to `.openclaw/openclaw.json` under that same resolved home
 
 It must not parse `openclaw config file` as an absolute-path source of truth.
 
@@ -444,7 +444,7 @@ Baseline tests cover:
 - backup/write flow
 - API key validation
 - OpenClaw presence checks
-- OpenClaw config path precedence
+- OpenClaw config path selection behavior
 
 ## Installer Happy Path
 

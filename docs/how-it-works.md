@@ -2,12 +2,12 @@
 
 `@gonkagate/openclaw` updates the active OpenClaw config path and also exposes a read-only `verify` command for checking that managed GonkaGate settings are still in place and active in the local runtime.
 
-The package resolves that active config path locally with the same precedence OpenClaw uses:
+The package resolves that active config path locally with the same active-config selection order stable OpenClaw 2026.4.1 uses:
 
-- `OPENCLAW_CONFIG_PATH`
-- `OPENCLAW_STATE_DIR/openclaw.json`
-- `OPENCLAW_HOME/.openclaw/openclaw.json`
-- default `~/.openclaw/openclaw.json`
+- `OPENCLAW_CONFIG_PATH`, when set
+- else, inside `OPENCLAW_STATE_DIR`, prefer an existing `openclaw.json` or `clawdbot.json`, and fall back to `OPENCLAW_STATE_DIR/openclaw.json`
+- else, under `OPENCLAW_HOME` or `~`, prefer the first existing config candidate in this order: `.openclaw/openclaw.json`, `.openclaw/clawdbot.json`, `.clawdbot/openclaw.json`, `.clawdbot/clawdbot.json`
+- if none of those candidates exist, fall back to canonical `.openclaw/openclaw.json`
 
 It intentionally does not parse `openclaw config file` as a source of truth for path resolution.
 

@@ -8,12 +8,12 @@ Under the hood it configures OpenClaw's built-in `openai` provider to talk to Go
 
 It does not install `OpenClaw` itself. It configures an existing local OpenClaw install and can bootstrap the base OpenClaw config automatically when needed.
 
-This package resolves the target config path locally with the same precedence as OpenClaw itself:
+This package resolves the target config path locally with the same active-config selection order stable OpenClaw 2026.4.1 uses:
 
-- `OPENCLAW_CONFIG_PATH`
-- `OPENCLAW_STATE_DIR/openclaw.json`
-- `OPENCLAW_HOME/.openclaw/openclaw.json`
-- default `~/.openclaw/openclaw.json`
+- `OPENCLAW_CONFIG_PATH`, when set
+- else, inside `OPENCLAW_STATE_DIR`, prefer an existing `openclaw.json` or `clawdbot.json`, and fall back to `OPENCLAW_STATE_DIR/openclaw.json`
+- else, under `OPENCLAW_HOME` or `~`, prefer the first existing config candidate in this order: `.openclaw/openclaw.json`, `.openclaw/clawdbot.json`, `.clawdbot/openclaw.json`, `.clawdbot/clawdbot.json`
+- if none of those candidates exist, fall back to canonical `.openclaw/openclaw.json`
 
 It does not parse `openclaw config file` to determine the target path.
 
@@ -73,13 +73,13 @@ Current curated registry in this package:
 The tool writes directly to the active OpenClaw config path resolved from:
 
 - `OPENCLAW_CONFIG_PATH`, when set
-- `OPENCLAW_STATE_DIR/openclaw.json`, when `OPENCLAW_CONFIG_PATH` is unset
-- `OPENCLAW_HOME/.openclaw/openclaw.json`, when the higher-precedence overrides are unset
-- `~/.openclaw/openclaw.json`, otherwise
+- else, inside `OPENCLAW_STATE_DIR`, the first existing of `openclaw.json` and `clawdbot.json`, falling back to `OPENCLAW_STATE_DIR/openclaw.json`
+- else, under `OPENCLAW_HOME` or `~`, the first existing of `.openclaw/openclaw.json`, `.openclaw/clawdbot.json`, `.clawdbot/openclaw.json`, `.clawdbot/clawdbot.json`
+- if no config candidate exists, canonical `.openclaw/openclaw.json`
 
 It also:
 
-- honors `OPENCLAW_CONFIG_PATH`, `OPENCLAW_STATE_DIR`, and `OPENCLAW_HOME` with the same precedence OpenClaw uses
+- honors `OPENCLAW_CONFIG_PATH`, `OPENCLAW_STATE_DIR`, and `OPENCLAW_HOME` with the same active-config selection order stable OpenClaw uses
 - checks that the `openclaw` CLI is installed before asking for secrets
 - runs `openclaw setup` automatically when the base OpenClaw config does not exist yet
 - bootstraps `gateway.mode: "local"` on true first-run installs when OpenClaw has not already set a gateway mode

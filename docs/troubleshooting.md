@@ -30,12 +30,12 @@ If `openclaw setup` is not available in your OpenClaw build, update OpenClaw fir
 
 ## Which config file does this package manage?
 
-The installer and `verify` command use the same OpenClaw-compatible precedence order:
+The installer and `verify` command use the same OpenClaw-compatible active-config selection order:
 
-- `OPENCLAW_CONFIG_PATH`
-- `OPENCLAW_STATE_DIR/openclaw.json`
-- `OPENCLAW_HOME/.openclaw/openclaw.json`
-- default `~/.openclaw/openclaw.json`
+- `OPENCLAW_CONFIG_PATH`, when set
+- else, inside `OPENCLAW_STATE_DIR`, the first existing of `openclaw.json` and `clawdbot.json`, falling back to `OPENCLAW_STATE_DIR/openclaw.json`
+- else, under `OPENCLAW_HOME` or `~`, the first existing of `.openclaw/openclaw.json`, `.openclaw/clawdbot.json`, `.clawdbot/openclaw.json`, `.clawdbot/clawdbot.json`
+- if no config candidate exists, canonical `.openclaw/openclaw.json`
 
 If install and verify appear to point at different files, check whether you changed any of these env vars between runs:
 

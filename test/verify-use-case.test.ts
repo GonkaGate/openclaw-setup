@@ -122,20 +122,21 @@ test("runVerifyUseCase checks the existing config through the verify ownership s
   assert.equal(result.display.sections[0]?.heading, "Verification complete.");
 });
 
-test("runVerifyUseCase uses the resolved target path for validation and runtime verification", async () => {
+test("runVerifyUseCase uses a resolved legacy target path for validation and runtime verification", async () => {
   const { dependencies, state } = createVerifyHarness();
+  const targetPath = "/tmp/.clawdbot/clawdbot.json";
 
   await runVerifyUseCase({
-    targetPath: "/tmp/custom-openclaw.json"
+    targetPath
   }, dependencies);
 
-  assert.deepEqual(state.loadPaths, ["/tmp/custom-openclaw.json"]);
-  assert.deepEqual(state.configValidationPaths, ["/tmp/custom-openclaw.json"]);
-  assert.deepEqual(state.verifyPaths, ["/tmp/custom-openclaw.json"]);
+  assert.deepEqual(state.loadPaths, [targetPath]);
+  assert.deepEqual(state.configValidationPaths, [targetPath]);
+  assert.deepEqual(state.verifyPaths, [targetPath]);
   assert.deepEqual(state.runtimeVerifyInputs, [
     {
       expectedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
-      filePath: "/tmp/custom-openclaw.json"
+      filePath: targetPath
     }
   ]);
 });

@@ -3,6 +3,12 @@ import path from "node:path";
 import test from "node:test";
 import { getSettingsTarget } from "../src/install/settings-paths.js";
 
+function createFileExists(existingPaths: string[]): (filePath: string) => boolean {
+  const existing = new Set(existingPaths);
+
+  return (filePath) => existing.has(filePath);
+}
+
 test("getSettingsTarget points at the default OpenClaw config path", () => {
   const target = getSettingsTarget("/tmp/test-home");
 
@@ -88,4 +94,75 @@ test("getSettingsTarget ignores whitespace-only override values and trims surrou
     }),
     path.join("/tmp/openclaw-home", ".openclaw", "openclaw.json")
   );
+});
+
+test("getSettingsTarget keeps OPENCLAW_CONFIG_PATH as the winner even when legacy config candidates exist", () => {
+  const target = getSettingsTarget(
+    "/tmp/test-home",
+    {
+      OPENCLAW_CONFIG_PATH: "/tmp/explicit-openclaw.json",
+      OPENCLAW_HOME: "/tmp/openclaw-home"
+    },
+    {
+      fileExists: createFileExists([
+        path.join("/tmp/openclaw-home", ".clawdbot", "clawdbot.json"),
+        path.join("/tmp/openclaw-home", ".openclaw", "openclaw.json")
+      ])
+    }
+  );
+
+  assert.equal(target, "/tmp/explicit-openclaw.json");
+});
+
+test("getSettingsTarget prefers an existing legacy default config candidate when no higher-precedence override is set", () => {
+  const target = getSettingsTarget(
+    "/tmp/test-home",
+    {},
+    {
+      fileExists: createFileExists([path.join("/tmp/test-home", ".clawdbot", "clawdbot.json")])
+    }
+  );
+
+  assert.equal(target, path.join("/tmp/test-home", ".clawdbot", "clawdbot.json"));
+});
+
+test("getSettingsTarget still falls back to the canonical OpenClaw path when no config candidates exist", () => {
+  const target = getSettingsTarget(
+    "/tmp/test-home",
+    {},
+    {
+      fileExists: createFileExists([])
+    }
+  );
+
+  assert.equal(target, path.join("/tmp/test-home", ".openclaw", "openclaw.json"));
+});
+
+test("getSettingsTarget keeps the canonical config ahead of legacy candidates when both exist", () => {
+  const target = getSettingsTarget(
+    "/tmp/test-home",
+    {},
+    {
+      fileExists: createFileExists([
+        path.join("/tmp/test-home", ".openclaw", "openclaw.json"),
+        path.join("/tmp/test-home", ".clawdbot", "clawdbot.json")
+      ])
+    }
+  );
+
+  assert.equal(target, path.join("/tmp/test-home", ".openclaw", "openclaw.json"));
+});
+
+test("getSettingsTarget keeps OPENCLAW_STATE_DIR resolution inside that namespace while honoring legacy filenames there", () => {
+  const target = getSettingsTarget(
+    "/tmp/test-home",
+    {
+      OPENCLAW_STATE_DIR: "/tmp/openclaw-state"
+    },
+    {
+      fileExists: createFileExists([path.join("/tmp/openclaw-state", "clawdbot.json")])
+    }
+  );
+
+  assert.equal(target, path.join("/tmp/openclaw-state", "clawdbot.json"));
 });
