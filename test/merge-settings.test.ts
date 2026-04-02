@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
+import { DEFAULT_MODEL, SUPPORTED_MODELS, toPrimaryModelRef } from "../src/constants/models.js";
 import { SettingsShapeError } from "../src/install/install-errors.js";
 import { mergeSettingsWithGonkaGate } from "../src/install/merge-settings.js";
 
@@ -65,45 +65,60 @@ test("mergeSettingsWithGonkaGate preserves an existing openai model catalog and 
 });
 
 test("mergeSettingsWithGonkaGate keeps agents.defaults.models behavior scoped to existing allowlists", () => {
-  const merged = mergeSettingsWithGonkaGate(
-    {
-      agents: {
-        defaults: {
-          models: {
-            "openai/legacy-model": {
-              alias: "legacy"
+  for (const model of SUPPORTED_MODELS) {
+    const merged = mergeSettingsWithGonkaGate(
+      {
+        agents: {
+          defaults: {
+            models: {
+              "openai/legacy-model": {
+                alias: "legacy"
+              }
             }
           }
         }
-      }
-    },
-    "gp-test-key",
-    DEFAULT_MODEL
-  );
-
-  assert.deepEqual((merged.agents as Record<string, unknown>).defaults, {
-    model: {
-      primary: "openai/qwen/qwen3-235b-a22b-instruct-2507-fp8"
-    },
-    models: {
-      "openai/legacy-model": {
-        alias: "legacy"
       },
-      "openai/qwen/qwen3-235b-a22b-instruct-2507-fp8": {
-        alias: "qwen3-235b"
+      "gp-test-key",
+      model
+    );
+
+    assert.deepEqual((merged.agents as Record<string, unknown>).defaults, {
+      model: {
+        primary: toPrimaryModelRef(model)
+      },
+      models: {
+        "openai/legacy-model": {
+          alias: "legacy"
+        },
+        [toPrimaryModelRef(model)]: {
+          alias: model.key
+        }
       }
-    }
-  });
+    });
+  }
 });
 
 test("mergeSettingsWithGonkaGate does not create agents.defaults.models when no allowlist existed", () => {
-  const merged = mergeSettingsWithGonkaGate({}, "gp-test-key", DEFAULT_MODEL);
+  for (const model of SUPPORTED_MODELS) {
+    const merged = mergeSettingsWithGonkaGate({}, "gp-test-key", model);
 
-  assert.deepEqual((merged.agents as Record<string, unknown>).defaults, {
-    model: {
-      primary: "openai/qwen/qwen3-235b-a22b-instruct-2507-fp8"
-    }
-  });
+    assert.deepEqual((merged.agents as Record<string, unknown>).defaults, {
+      model: {
+        primary: toPrimaryModelRef(model)
+      }
+    });
+  }
+});
+
+test("mergeSettingsWithGonkaGate sets the selected curated primary ref for every supported model", () => {
+  for (const model of SUPPORTED_MODELS) {
+    const merged = mergeSettingsWithGonkaGate({}, "gp-test-key", model);
+    const defaultModel = (
+      ((merged.agents as Record<string, unknown>).defaults as Record<string, unknown>).model as Record<string, unknown>
+    );
+
+    assert.equal(defaultModel.primary, toPrimaryModelRef(model));
+  }
 });
 
 test("mergeSettingsWithGonkaGate preserves unrelated top-level settings", () => {

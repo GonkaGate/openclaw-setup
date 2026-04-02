@@ -291,7 +291,7 @@ Safely reads the target file as JSON5.
 
 Rules:
 
-- if the file does not exist, the loader returns `exists: false`
+- if the file does not exist, the loader returns `kind: "missing"`
 - the CLI may bootstrap the base OpenClaw config through `openclaw setup`
 - if the JSON5 is broken, the installer must stop
 - the installer must not silently overwrite a corrupted file

@@ -1,21 +1,115 @@
 import assert from "node:assert/strict";
 import { chmod, writeFile } from "node:fs/promises";
 import test from "node:test";
-import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
+import { DEFAULT_MODEL, SUPPORTED_MODELS, toPrimaryModelRef } from "../src/constants/models.js";
 import { formatUnixMode } from "../src/install/file-permissions.js";
 import { INSTALL_ERROR_CODE, SettingsVerificationError } from "../src/install/install-errors.js";
+import { loadSettings } from "../src/install/load-settings.js";
+import { mergeSettingsWithGonkaGate } from "../src/install/merge-settings.js";
 import { verifySettings } from "../src/install/verify-settings.js";
+import { writeSettings } from "../src/install/write-settings.js";
 import { createManagedConfigFixture, createTempFilePath } from "./test-helpers.js";
 
 test("verifySettings accepts the managed GonkaGate provider config with owner-only permissions", async () => {
-  const filePath = await createManagedConfigFile("openclaw-verify-success-", 0o600);
+  for (const model of SUPPORTED_MODELS) {
+    const filePath = await createManagedConfigFile(`openclaw-verify-success-${model.key}-`, 0o600);
 
-  const result = await verifySettings(filePath, createManagedConfigFixture({
-    includeAllowlist: true
-  }));
+    const result = await verifySettings(filePath, createManagedConfigFixture({
+      includeAllowlist: true,
+      selectedModel: model
+    }));
 
-  assert.equal(result.selectedModel.key, DEFAULT_MODEL.key);
-  assert.equal(result.configMode, 0o600);
+    assert.equal(result.selectedModel.key, model.key);
+    assert.equal(result.configMode, 0o600);
+  }
+});
+
+test("merged configs roundtrip through write, load, and verify for every supported model", async () => {
+  for (const model of SUPPORTED_MODELS) {
+    const filePath = await createTempFilePath(`openclaw-verify-roundtrip-${model.key}-`);
+    const merged = mergeSettingsWithGonkaGate(
+      {
+        gateway: {
+          auth: {
+            mode: "token"
+          }
+        },
+        workspace: {
+          root: "~/.openclaw/workspace"
+        }
+      },
+      "gp-test-key",
+      model
+    );
+
+    await writeSettings(filePath, merged);
+
+    const loaded = await loadSettings(filePath);
+
+    assert.equal(loaded.kind, "loaded");
+    if (loaded.kind !== "loaded") {
+      assert.fail("Expected loadSettings to return the written settings");
+    }
+
+    const result = await verifySettings(filePath, loaded.settings);
+
+    assert.equal(result.selectedModel.key, model.key);
+    assert.equal(result.configMode, 0o600);
+  }
+});
+
+test("merged configs with an existing allowlist roundtrip through write, load, and verify for every supported model", async () => {
+  for (const model of SUPPORTED_MODELS) {
+    const filePath = await createTempFilePath(`openclaw-verify-allowlist-roundtrip-${model.key}-`);
+    const merged = mergeSettingsWithGonkaGate(
+      {
+        agents: {
+          defaults: {
+            models: {
+              "openai/legacy-model": {
+                alias: "legacy"
+              }
+            }
+          }
+        },
+        models: {
+          providers: {
+            openai: {
+              headers: {
+                "x-extra-header": "keep-me"
+              }
+            }
+          }
+        }
+      },
+      "gp-test-key",
+      model
+    );
+
+    await writeSettings(filePath, merged);
+
+    const loaded = await loadSettings(filePath);
+
+    assert.equal(loaded.kind, "loaded");
+    if (loaded.kind !== "loaded") {
+      assert.fail("Expected loadSettings to return the written settings");
+    }
+
+    const result = await verifySettings(filePath, loaded.settings);
+
+    assert.equal(result.selectedModel.key, model.key);
+
+    const defaults = ((loaded.settings.agents as Record<string, unknown>).defaults as Record<string, unknown>);
+    const allowlist = defaults.models as Record<string, unknown>;
+    const provider = (((loaded.settings.models as Record<string, unknown>).providers as Record<string, unknown>).openai as Record<string, unknown>);
+
+    assert.deepEqual(allowlist[toPrimaryModelRef(model)], {
+      alias: model.key
+    });
+    assert.deepEqual(provider.headers, {
+      "x-extra-header": "keep-me"
+    });
+  }
 });
 
 test("verifySettings rejects configs that point OpenClaw at the wrong base URL", async () => {
@@ -135,25 +229,28 @@ test("verifySettings rejects missing allowlist entries when agents.defaults.mode
 });
 
 test("verifySettings rejects mismatched allowlist aliases when agents.defaults.models is present", async () => {
-  const filePath = await createManagedConfigFile("openclaw-verify-alias-", 0o600);
+  for (const model of SUPPORTED_MODELS) {
+    const filePath = await createManagedConfigFile(`openclaw-verify-alias-${model.key}-`, 0o600);
 
-  await assert.rejects(
-    verifySettings(filePath, createManagedConfigFixture({
-      allowlist: {
-        [toPrimaryModelRef(DEFAULT_MODEL)]: {
-          alias: "wrong-alias"
-        }
-      },
-      includeAllowlist: true
-    })),
-    (error) => {
-      assert.ok(error instanceof SettingsVerificationError);
-      assert.equal(error.kind, "mismatched_allowlist_alias");
-      assert.match(error.fieldPath ?? "", /alias/);
-      assert.equal(error.actual, "wrong-alias");
-      return true;
-    }
-  );
+    await assert.rejects(
+      verifySettings(filePath, createManagedConfigFixture({
+        allowlist: {
+          [toPrimaryModelRef(model)]: {
+            alias: "wrong-alias"
+          }
+        },
+        includeAllowlist: true,
+        selectedModel: model
+      })),
+      (error) => {
+        assert.ok(error instanceof SettingsVerificationError);
+        assert.equal(error.kind, "mismatched_allowlist_alias");
+        assert.match(error.fieldPath ?? "", /alias/);
+        assert.equal(error.actual, "wrong-alias");
+        return true;
+      }
+    );
+  }
 });
 
 test("verifySettings rejects configs whose permissions are not owner-only", async () => {

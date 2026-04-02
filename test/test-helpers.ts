@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "../src/constants/gateway.js";
-import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
+import { DEFAULT_MODEL, toPrimaryModelRef, type SupportedModel } from "../src/constants/models.js";
 import type { OpenClawConfig } from "../src/types/settings.js";
 
 export async function createTempDirectory(prefix: string): Promise<string> {
@@ -69,15 +69,17 @@ interface ManagedConfigFixtureOptions {
   includeOpenAiModels?: boolean;
   openaiProvider?: Record<string, unknown>;
   primaryModelRef?: string;
+  selectedModel?: SupportedModel;
 }
 
 export function createManagedConfigFixture(options: ManagedConfigFixtureOptions = {}): OpenClawConfig {
-  const primaryModelRef = options.primaryModelRef ?? toPrimaryModelRef(DEFAULT_MODEL);
+  const selectedModel = options.selectedModel ?? DEFAULT_MODEL;
+  const primaryModelRef = options.primaryModelRef ?? toPrimaryModelRef(selectedModel);
   const defaults = asRecord(options.defaults);
   const defaultModel = asRecord(defaults.model);
   const allowlist = options.allowlist ?? {
     [primaryModelRef]: {
-      alias: DEFAULT_MODEL.key
+      alias: selectedModel.key
     }
   };
 

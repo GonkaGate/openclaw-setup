@@ -47,6 +47,74 @@ function createProbeClient(results: readonly StubCommandResult[]) {
   });
 }
 
+test("createOpenClawClient uses the canonical OpenClaw probe commands with piped stdio", () => {
+  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const calls: Array<{
+    args: string[];
+    command: string;
+    options?: {
+      stdio?: string;
+    };
+  }> = [];
+  const client = createOpenClawClient({
+    runCommand: (command, args, options) => {
+      calls.push({
+        args: [...args],
+        command,
+        options: options ? { stdio: options.stdio as string | undefined } : undefined
+      });
+
+      const invocationIndex = calls.length - 1;
+
+      return invocationIndex === 0
+        ? {
+            status: 0,
+            stderr: "",
+            stdout: '{"rpc":{"ok":true}}'
+          }
+        : invocationIndex === 1
+          ? {
+              status: 0,
+              stderr: "",
+              stdout: '{"ok":true}'
+            }
+          : {
+              status: 0,
+              stderr: "",
+              stdout: `${expectedPrimaryModelRef}\n`
+            };
+    }
+  });
+
+  client.probeGatewayRpc();
+  client.probeHealthSnapshot();
+  client.probeResolvedPrimaryModel();
+
+  assert.deepEqual(calls, [
+    {
+      args: ["gateway", "status", "--require-rpc", "--json"],
+      command: "openclaw",
+      options: {
+        stdio: "pipe"
+      }
+    },
+    {
+      args: ["health", "--json"],
+      command: "openclaw",
+      options: {
+        stdio: "pipe"
+      }
+    },
+    {
+      args: ["models", "status", "--plain"],
+      command: "openclaw",
+      options: {
+        stdio: "pipe"
+      }
+    }
+  ]);
+});
+
 test("verifyOpenClawRuntime accepts a healthy Gateway, health snapshot, and resolved model", () => {
   const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
 

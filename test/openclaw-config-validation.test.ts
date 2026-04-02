@@ -7,6 +7,7 @@ import {
   TemporaryCandidateCleanupError,
   TemporaryCandidatePreparationError
 } from "../src/install/install-errors.js";
+import { createOpenClawClient } from "../src/install/openclaw-client.js";
 import { validateOpenClawConfig, validateSettingsBeforeWrite } from "../src/install/openclaw-config-validation.js";
 import { createTempFilePath } from "./test-helpers.js";
 
@@ -16,6 +17,55 @@ test("validateOpenClawConfig accepts a successful structured validation report",
     stderr: "",
     stdout: '{"valid":true,"path":"/tmp/openclaw.json"}'
   }));
+});
+
+test("createOpenClawClient validates configs through the canonical command and OPENCLAW_CONFIG_PATH", () => {
+  let invocation:
+    | {
+        args: string[];
+        command: string;
+        options?: {
+          env?: NodeJS.ProcessEnv;
+          stdio?: string;
+        };
+      }
+    | undefined;
+
+  createOpenClawClient({
+    env: {
+      TEST_ENV: "preserved"
+    },
+    runCommand: (command, args, options) => {
+      invocation = {
+        args: [...args],
+        command,
+        options: options
+          ? {
+              env: options.env ? { ...options.env } : undefined,
+              stdio: options.stdio as string | undefined
+            }
+          : undefined
+      };
+
+      return {
+        status: 0,
+        stderr: "",
+        stdout: '{"valid":true,"path":"/tmp/openclaw.json"}'
+      };
+    }
+  }).validateConfig("/tmp/openclaw.json");
+
+  assert.deepEqual(invocation, {
+    args: ["config", "validate", "--json"],
+    command: "openclaw",
+    options: {
+      env: {
+        OPENCLAW_CONFIG_PATH: "/tmp/openclaw.json",
+        TEST_ENV: "preserved"
+      },
+      stdio: "pipe"
+    }
+  });
 });
 
 test("validateOpenClawConfig rejects successful reports that omit the validated path", () => {

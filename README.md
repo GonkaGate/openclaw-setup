@@ -33,8 +33,8 @@ If the active OpenClaw config path does not exist yet, the installer will run `o
 You need:
 
 - local `OpenClaw`
-- Node.js 18+ to run this package
-- if your `openclaw` CLI was installed from npm, current OpenClaw docs require Node 22.14+ and recommend Node 24
+- Node.js 22.14+ to run this package
+- current OpenClaw install docs recommend Node 24, with Node 22.14+ supported for compatibility
 - a GonkaGate API key
 
 ## Verify With This CLI

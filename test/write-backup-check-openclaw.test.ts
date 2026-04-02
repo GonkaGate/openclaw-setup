@@ -156,6 +156,40 @@ test("ensureOpenClawInstalled reports a missing binary clearly", () => {
   );
 });
 
+test("ensureOpenClawInstalled runs the canonical OpenClaw version command with piped stdio", () => {
+  let invocation:
+    | {
+        args: string[];
+        command: string;
+        options?: {
+          stdio?: string;
+        };
+      }
+    | undefined;
+
+  ensureOpenClawInstalled((command, args, options) => {
+    invocation = {
+      args: [...args],
+      command,
+      options: options ? { stdio: options.stdio as string | undefined } : undefined
+    };
+
+    return {
+      status: 0,
+      stderr: "",
+      stdout: "1.0.0"
+    };
+  });
+
+  assert.deepEqual(invocation, {
+    args: ["--version"],
+    command: "openclaw",
+    options: {
+      stdio: "pipe"
+    }
+  });
+});
+
 test("ensureOpenClawInstalled reports failing version checks clearly", () => {
   assert.throws(
     () =>
@@ -210,6 +244,40 @@ test("initializeOpenClawBaseConfig reports a missing binary clearly", () => {
       return true;
     }
   );
+});
+
+test("initializeOpenClawBaseConfig runs the canonical OpenClaw setup command with inherited stdio", () => {
+  let invocation:
+    | {
+        args: string[];
+        command: string;
+        options?: {
+          stdio?: string;
+        };
+      }
+    | undefined;
+
+  initializeOpenClawBaseConfig((command, args, options) => {
+    invocation = {
+      args: [...args],
+      command,
+      options: options ? { stdio: options.stdio as string | undefined } : undefined
+    };
+
+    return {
+      status: 0,
+      stderr: "",
+      stdout: ""
+    };
+  });
+
+  assert.deepEqual(invocation, {
+    args: ["setup"],
+    command: "openclaw",
+    options: {
+      stdio: "inherit"
+    }
+  });
 });
 
 test("initializeOpenClawBaseConfig reports failing setup clearly", () => {

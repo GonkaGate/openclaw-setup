@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Raised the minimum supported Node.js runtime for this package to Node 22.14+ so it matches current OpenClaw install support expectations.
+- CI and publish workflows now both run on Node 22.14.0, and runtime documentation no longer advertises Node 18 support.
+- Upgraded `@inquirer/prompts`, `commander`, and `write-file-atomic` to current releases that are now appropriate for a Node 22.14+ baseline.
 - Fresh OpenClaw installs no longer require `openclaw onboard` before using this package.
 - The installer now bootstraps missing OpenClaw config and workspace state through `openclaw setup` before applying GonkaGate-managed provider settings.
 - True first-run installs now also bootstrap a minimal local Gateway mode by setting `gateway.mode` to `"local"` only when OpenClaw setup did not already choose a gateway mode.
