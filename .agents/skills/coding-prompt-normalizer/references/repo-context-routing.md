@@ -1,7 +1,7 @@
 # Repo Context Routing
 
 Use this file to choose only the repository context that materially changes the
-generated prompt.
+generated context handoff prompt.
 
 Do not dump the whole repo summary into the output. Pull only the relevant
 points.
@@ -153,7 +153,7 @@ Useful context:
 
 ## Output Discipline
 
-When you include repo context in the final prompt:
+When you include repo context in the final handoff prompt:
 
 - prefer short bullets or short paragraphs
 - name the most relevant docs or code areas first

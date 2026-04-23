@@ -17,7 +17,7 @@ meaning.
 - The input language does not matter.
 - Mixed-language input is normal. Keep technical literals intact and normalize
   the connective tissue around them.
-- Do not mention the source language in the final prompt unless the user
+- Do not mention the source language in the final handoff prompt unless the user
   explicitly asks for that.
 
 ## Preserve Technical Language
@@ -35,13 +35,13 @@ meaning.
 
 - Ground phrases like "here", "this config", "that command", or "that verify
   path" only when the input provides a strong clue.
-- If the clue is weak, use assumption language in the final prompt:
+- If the clue is weak, use assumption language in the final handoff prompt:
   `Likely relevant area`, `Possible target`, or `Assumption`.
 - Do not invent a file or module just to make the prompt sound confident.
 
 ## Rewrite Meaning, Not Surface Wording
 
-- Rewrite the user's intent into clear instructions for an agent.
+- Rewrite the user's intent into a clear context-rich handoff for an agent.
 - Keep the real request, constraints, and likely acceptance criteria.
 - Remove duplicates and noise, but keep the user's true preferences and
   non-goals.
@@ -64,7 +64,7 @@ Treat these as examples of tokens that must survive exactly if they appear:
 - `src/install/merge-settings.ts`
 - `test/verify-runtime.test.ts`
 
-Wrap such literals in backticks inside the final prompt.
+Wrap such literals in backticks inside the final handoff prompt.
 
 ## Ambiguity Handling
 
@@ -82,4 +82,4 @@ Before finishing, confirm:
 - exact literals are preserved
 - the task mode is explicit
 - no fake certainty was introduced
-- the result is a useful prompt, not just a cleaned transcript
+- the result is a useful task-context handoff, not just a cleaned transcript

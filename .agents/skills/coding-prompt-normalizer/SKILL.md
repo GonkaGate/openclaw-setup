@@ -1,16 +1,23 @@
 ---
 name: coding-prompt-normalizer
-description: "Turn rough, mixed-language, speech-to-text-like, or partially specified coding requests into strong prompts for agents working inside openclaw-setup. Use when the user asks to rewrite, normalize, package, or clarify a task for Codex or Claude in this repository, even if the input is messy, repetitive, nonlinear, or only partly grounded; the job is intent reconstruction plus repo-aware prompt composition, not literal translation."
+description: "Turn rough, mixed-language, speech-to-text-like, repetitive, or partially specified coding requests into a high-signal task context brief and handoff prompt for agents working inside openclaw-setup. Use when the hard part is reconstructing what the user wants, preserving exact signals, deduplicating messy notes, grounding repo assumptions, or making a downstream LLM understand the task correctly. Prompt polish is secondary; the job is intent/context reconstruction plus repo-aware handoff packaging, not literal translation."
 ---
 
 # Coding Prompt Normalizer
 
 ## Purpose
 
-Turn noisy user task descriptions into clean prompts that help a coding agent
-start in the right place in `openclaw-setup`.
+Turn noisy user task descriptions into context-rich handoff prompts that help a
+coding agent understand the user's real task and start in the right place in
+`openclaw-setup`.
 
-Reconstruct intent, strip filler, preserve exact technical literals, choose the
+The primary deliverable is not a polished prompt. The primary deliverable is an
+accurate task context model: what the user wants, which exact signals matter,
+what this repository implies, what is missing, and which assumptions are safe
+enough to carry forward. The final handoff prompt is just the packaging for that
+context.
+
+Reconstruct intent, remove noise, preserve exact technical literals, choose the
 right task mode, and inject only the repository context that materially changes
 execution.
 
@@ -21,30 +28,34 @@ execution.
 - requests like "turn this into a normal prompt", "package this for Codex", or
   "rewrite this for an agent"
 - repetitive, nonlinear, partially explained tasks where the downstream agent
-  still needs a strong starting prompt
+  still needs accurate task context before it can act
 
 ## Do Not Use It For
 
 - generic translation with no repository work
-- writing the code, spec, or review itself; this skill prepares the prompt
+- writing the code, spec, or review itself; this skill prepares the context and
+  handoff prompt
 - inventing files, behaviors, or product decisions that the repo does not
   support
 
 ## Relationship To Neighbor Skills
 
 - Use this skill first when the main problem is poor task phrasing.
-- After the prompt is reconstructed, downstream work may use repo skills such
-  as `typescript-coder`, `technical-design-review`,
+- After the task context is reconstructed, downstream work may use repo skills
+  such as `typescript-coder`, `technical-design-review`,
   `verification-before-completion`, or `spec-first-brainstorming`.
 - Do not turn this skill into a replacement for those domain skills. Its job is
-  to create a better starting prompt, not to own the whole workflow.
+  to create a better starting context and handoff, not to own the whole
+  workflow.
 
 ## Workflow
 
-1. Normalize the raw input.
+1. Capture and normalize the raw input.
    - Load `references/input-normalization.md`.
    - Remove filler, loops, false starts, and duplicated fragments.
    - Keep code-like literals verbatim.
+   - Treat repetition as evidence: collapse duplicates, but preserve repeated
+     emphasis when it changes priority, urgency, or non-goals.
 2. Infer the task mode.
    - Choose one primary mode:
      `implementation`, `bug-investigation`, `review-read-only`, `refactor`,
@@ -64,30 +75,37 @@ execution.
      config write or permission changes, validation-flow changes, or broad
      repository-wide refactors.
    - Review requests stay read-only.
-4. Select repository context.
+4. Build the task context model.
+   - Separate explicit user signals, repo-grounded facts, inferred assumptions,
+     missing context, and open questions.
+   - Preserve exact literals before interpreting them.
+   - Keep uncertainty visible instead of smoothing it away for prompt polish.
+5. Select repository context.
    - Load `references/repo-context-routing.md`.
    - Include only the repo facts, docs, constraints, and code areas that
      materially affect this task.
    - Prefer `2-5` targeted points over a project summary.
-5. Compose the prompt.
+6. Compose the handoff prompt.
    - Do not mention the source language unless the user explicitly asks.
    - Default the output prompt to English because the repo docs, code, and
      agent instructions are English-first.
    - If the user explicitly requests another output language, honor that.
    - Write for an agent that already has repo access and knows how to inspect
      files, edit code, and navigate the workspace.
-   - Keep the prompt dense and action-oriented.
-6. Run a final quality gate.
+   - Keep the handoff dense, context-rich, and action-oriented.
+7. Run a final quality gate.
    - No hallucinated files, requirements, or product decisions.
    - No generic stack dump.
    - Exact literals preserved.
+   - User intent, repo facts, assumptions, and open questions are not blurred
+     together.
    - Assumptions and open questions explicit where certainty is weak.
 
 ## Literal Preservation Rules
 
 - Preserve exact file paths, CLI commands, env vars, code identifiers, config
   keys, model ids, field names, and domain terms verbatim.
-- Wrap preserved literals in backticks inside the final prompt.
+- Wrap preserved literals in backticks inside the final handoff prompt.
 - Do not "improve" or rename tokens like `~/.openclaw/openclaw.json`,
   `gp-...`, `openclaw setup`, `openclaw gateway`,
   `npx @gonkagate/openclaw verify`, `models.providers.openai.baseUrl`, or
@@ -102,7 +120,7 @@ execution.
 
 ## Readiness Rules
 
-Emit an `implementation` or `refactor` prompt only when all are true:
+Emit an `implementation` or `refactor` handoff only when all are true:
 
 - the requested change is understandable
 - the likely code area is narrow enough to inspect first
@@ -111,16 +129,16 @@ Emit an `implementation` or `refactor` prompt only when all are true:
   UX, secret-handling rules, runtime verification semantics, or other
   hard-to-reverse behavior
 
-Emit a `bug-investigation` prompt when any are true:
+Emit a `bug-investigation` handoff when any are true:
 
 - the text is symptom-first or regression-first
 - the root cause is unclear
 - multiple ownership seams could explain the behavior
 
-Emit a `review-read-only` prompt when the user asks to inspect, review, audit,
+Emit a `review-read-only` handoff when the user asks to inspect, review, audit,
 or explicitly avoid edits.
 
-Emit a `planning-spec` or `architecture-analysis` prompt when:
+Emit a `planning-spec` or `architecture-analysis` handoff when:
 
 - the task is exploratory or cross-cutting
 - requirements are incomplete
@@ -128,7 +146,7 @@ Emit a `planning-spec` or `architecture-analysis` prompt when:
 - the request touches product-contract changes from `AGENTS.md`
 - resolving ambiguity is more important than coding immediately
 
-Emit a `docs-and-messaging` prompt when the task is mainly about `README.md`,
+Emit a `docs-and-messaging` handoff when the task is mainly about `README.md`,
 `docs/`, `CHANGELOG.md`, or `AGENTS.md` accuracy and alignment.
 
 When ambiguity remains high, keep `Assumptions` and `Open questions` short but
@@ -139,6 +157,7 @@ explicit. Do not hide uncertainty behind polished wording.
 Adapt the sections to the mode. Default order:
 
 - `Objective`
+- `User intent and context`
 - `Relevant repository context`
 - `Likely relevant code areas / files`
 - `Problem statement` or `Requested change`
@@ -168,10 +187,11 @@ Mode-specific adjustments:
   - keep repo context focused on local skills, prompts, agents, and workflow
     surfaces
 
-Keep the prompt compact. Do not force all sections when `1-2` focused
-paragraphs do the job better.
+Use `User intent and context` to preserve the reconstructed ask, priority
+signals, and missing context before listing repo facts. Keep the prompt compact.
+Do not force all sections when `1-2` focused paragraphs do the job better.
 
-## Prompt Composition Rules
+## Context Handoff Rules
 
 - Start with the real objective, not with "rewrite this prompt".
 - Prefer concrete repo surfaces when they are grounded by the input or the
@@ -188,6 +208,8 @@ paragraphs do the job better.
 - Do not propose product changes like custom base URL input, `.env` writing, or
   shell profile edits unless the user explicitly asks for a product-contract
   change and the prompt frames it as such.
+- Do not optimize mainly for eloquence. A plain handoff with the right context
+  is better than a polished prompt that hides uncertainty or user intent.
 
 ## Examples
 

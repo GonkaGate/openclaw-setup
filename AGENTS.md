@@ -557,3 +557,14 @@ Pause and double-check if your change touches:
 This repository should stay onboarding-first.
 
 It is not a general-purpose OpenClaw provider configurator and not a playground for dozens of options. Its value is that users get one obvious, short, and safe path: install OpenClaw, run this package, enter a `gp-...` key, choose a curated model, and then keep using OpenClaw normally.
+
+@RTK.md
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- After modifying code files in this session, run `python3 -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"` to keep the graph current
