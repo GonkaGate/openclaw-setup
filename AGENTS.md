@@ -74,8 +74,9 @@ These decisions are part of the repo contract. Changing them is not a small refa
 
 Current honest limitation:
 
-- the curated registry currently contains exactly one supported model:
-  `qwen3-235b` -> `qwen/qwen3-235b-a22b-instruct-2507-fp8`
+- the curated registry currently contains these supported models:
+  - `qwen3-235b` -> `qwen/qwen3-235b-a22b-instruct-2507-fp8`
+  - `kimi-k2.6` -> `moonshotai/Kimi-K2.6` (default)
 
 ## What the Repo Does and Does Not Do
 

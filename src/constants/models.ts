@@ -13,7 +13,14 @@ const curatedModelRegistry = [
     key: "qwen3-235b",
     displayName: "Qwen 3 235B Instruct",
     modelId: "qwen/qwen3-235b-a22b-instruct-2507-fp8",
-    description: "Best default for complex reasoning on GonkaGate.",
+    description: "Qwen reasoning model on GonkaGate.",
+    isDefault: false
+  },
+  {
+    key: "kimi-k2.6",
+    displayName: "Kimi K2.6",
+    modelId: "moonshotai/Kimi-K2.6",
+    description: "Recommended default for long-horizon coding and agentic workflows on GonkaGate.",
     isDefault: true
   }
 ] as const satisfies readonly SupportedModelDefinition[];

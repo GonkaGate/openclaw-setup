@@ -52,7 +52,7 @@ export function buildModelPromptConfig(
       value: model.key,
       name: model.displayName,
       short: model.key,
-      description: model.description ? `${model.description} Model ID: ${model.modelId}` : `Model ID: ${model.modelId}`
+      description: `${model.description ? `${model.description} ` : ""}Model ID: ${model.modelId}`
     })),
     pageSize: Math.min(models.length, 8),
     loop: false,
