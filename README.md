@@ -67,6 +67,7 @@ This command checks:
 Current curated registry in this package:
 
 - `qwen3-235b` -> `qwen/qwen3-235b-a22b-instruct-2507-fp8`
+- `kimi-k2.6` -> `moonshotai/Kimi-K2.6` (default)
 
 ## What It Does
 

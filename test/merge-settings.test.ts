@@ -158,7 +158,7 @@ test("mergeSettingsWithGonkaGate preserves unrelated agents.defaults.model keys"
   assert.deepEqual((merged.agents as Record<string, unknown>).defaults, {
     model: {
       fallback: "openai/legacy-model",
-      primary: "openai/qwen/qwen3-235b-a22b-instruct-2507-fp8",
+      primary: toPrimaryModelRef(DEFAULT_MODEL),
       temperature: 0.2
     }
   });

@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Added `moonshotai/Kimi-K2.6` to the curated GonkaGate model registry under the `kimi-k2.6` model key and made it the default model.
 - Raised the minimum supported Node.js runtime for this package to Node 22.14+ so it matches current OpenClaw install support expectations.
 - CI and publish workflows now both run on Node 22.14.0, and runtime documentation no longer advertises Node 18 support.
 - Upgraded `@inquirer/prompts`, `commander`, and `write-file-atomic` to current releases that are now appropriate for a Node 22.14+ baseline.
