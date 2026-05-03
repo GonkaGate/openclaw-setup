@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.0](https://github.com/GonkaGate/openclaw-setup/compare/v0.1.0...v0.2.0) (2026-05-03)
+
+
+### Features
+
+* add Kimi K2.6 model ([7123724](https://github.com/GonkaGate/openclaw-setup/commit/7123724b5befae6f679f4e683e686a967e33b20f))
+* add Kimi K2.6 model ([af84721](https://github.com/GonkaGate/openclaw-setup/commit/af847212669438754f3bf3141182d33e398ff4fd))
+* support GonkaGate model catalog for OpenClaw switcher ([7b24bf6](https://github.com/GonkaGate/openclaw-setup/commit/7b24bf603a41999ad9cf7629e4d92affc5a83d3e))
+* support GonkaGate model catalog for OpenClaw switcher ([3e5bf68](https://github.com/GonkaGate/openclaw-setup/commit/3e5bf684e1c0f27f73ade39addc8481f5db8c788))
+
 ## [Unreleased]
 
 - Added `moonshotai/Kimi-K2.6` to the curated GonkaGate model registry under the `kimi-k2.6` model key and made it the default model.
