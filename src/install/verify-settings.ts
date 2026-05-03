@@ -3,6 +3,8 @@ import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "../constants/ga
 import {
   getManagedModelSelectionByPrimaryRef,
   listSupportedPrimaryModelRefs,
+  SUPPORTED_MODELS,
+  toPrimaryModelRef,
   type ManagedModelSelection
 } from "../constants/models.js";
 import type { SupportedModel } from "../constants/models.js";
@@ -30,7 +32,7 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
   const baseUrl = requireNonEmptyString(provider.baseUrl, MANAGED_SETTINGS_PATHS.openaiBaseUrl, filePath);
   const api = requireNonEmptyString(provider.api, MANAGED_SETTINGS_PATHS.openaiApi, filePath);
   requireManagedApiKey(provider.apiKey, filePath);
-  requirePresentArray(provider.models, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
+  const providerModels = requirePresentArray(provider.models, MANAGED_SETTINGS_PATHS.openaiModels, filePath);
   const primaryModelRef = getPrimaryModelRef(managed.defaultModel, filePath);
 
   if (baseUrl !== GONKAGATE_OPENAI_BASE_URL) {
@@ -68,7 +70,8 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
     });
   }
 
-  verifyModelAllowlistWhenPresent(managed.allowlist, filePath, selectedModelState);
+  verifyOpenAiProviderModelCatalog(providerModels, filePath);
+  verifyModelAllowlist(managed.allowlist, filePath);
 
   let configMode: number;
 
@@ -151,15 +154,30 @@ function requireManagedApiKey(value: unknown, filePath: string): string {
   }
 }
 
-function verifyModelAllowlistWhenPresent(
+function verifyModelAllowlist(
   allowlist: ReadonlyPlainObject | undefined,
+  filePath: string
+): void {
+  if (!allowlist) {
+    throw new SettingsVerificationError({
+      fieldPath: MANAGED_SETTINGS_PATHS.allowlist,
+      filePath,
+      kind: "missing_managed_value",
+      message:
+        `Expected "${MANAGED_SETTINGS_PATHS.allowlist}" in ${filePath} to exist so OpenClaw /models can list curated GonkaGate models.`
+    });
+  }
+
+  for (const model of SUPPORTED_MODELS) {
+    verifyModelAllowlistEntry(allowlist, filePath, getRequiredManagedModelSelection(model));
+  }
+}
+
+function verifyModelAllowlistEntry(
+  allowlist: ReadonlyPlainObject,
   filePath: string,
   selectedModelState: ManagedModelSelection
 ): void {
-  if (!allowlist) {
-    return;
-  }
-
   const allowlistEntry = readManagedAllowlistEntryWhenPresent(
     allowlist,
     selectedModelState.primaryModelRef,
@@ -190,6 +208,41 @@ function verifyModelAllowlistWhenPresent(
       });
     }
   }
+}
+
+function verifyOpenAiProviderModelCatalog(providerModels: readonly unknown[], filePath: string): void {
+  for (const model of SUPPORTED_MODELS) {
+    const expectedModelId = model.modelId;
+    const modelEntry = providerModels.find((entry) => {
+      const objectEntry = typeof entry === "object" && entry !== null && !Array.isArray(entry)
+        ? entry as ReadonlyPlainObject
+        : undefined;
+
+      return objectEntry?.id === expectedModelId;
+    });
+
+    if (!modelEntry) {
+      throw new SettingsVerificationError({
+        expected: expectedModelId,
+        fieldPath: MANAGED_SETTINGS_PATHS.openaiModels,
+        filePath,
+        kind: "missing_provider_model_entry",
+        message:
+          `Expected "${MANAGED_SETTINGS_PATHS.openaiModels}" in ${filePath} to include model id "${expectedModelId}" ` +
+          "so OpenClaw /models can expose the curated GonkaGate catalog."
+      });
+    }
+  }
+}
+
+function getRequiredManagedModelSelection(model: SupportedModel): ManagedModelSelection {
+  const modelSelection = getManagedModelSelectionByPrimaryRef(toPrimaryModelRef(model));
+
+  if (!modelSelection) {
+    throw new Error(`Curated model "${model.key}" does not resolve to a managed OpenClaw model ref.`);
+  }
+
+  return modelSelection;
 }
 
 function requireNonEmptyString(value: unknown, fieldPath: string, filePath: string): string {

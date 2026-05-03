@@ -10,6 +10,12 @@ import { verifySettings } from "../src/install/verify-settings.js";
 import { writeSettings } from "../src/install/write-settings.js";
 import { createManagedConfigFixture, createTempFilePath } from "./test-helpers.js";
 
+function expectedAllowlist() {
+  return Object.fromEntries(
+    SUPPORTED_MODELS.map((model) => [toPrimaryModelRef(model), { alias: model.key }])
+  );
+}
+
 test("verifySettings accepts the managed GonkaGate provider config with owner-only permissions", async () => {
   for (const model of SUPPORTED_MODELS) {
     const filePath = await createManagedConfigFile(`openclaw-verify-success-${model.key}-`, 0o600);
@@ -228,17 +234,33 @@ test("verifySettings rejects missing allowlist entries when agents.defaults.mode
   );
 });
 
+test("verifySettings rejects configs without the curated model switcher allowlist", async () => {
+  const filePath = await createManagedConfigFile("openclaw-verify-missing-allowlist-", 0o600);
+
+  await assert.rejects(
+    verifySettings(filePath, createManagedConfigFixture({
+      includeAllowlist: false
+    })),
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.kind, "missing_managed_value");
+      assert.equal(error.fieldPath, "agents.defaults.models");
+      return true;
+    }
+  );
+});
+
 test("verifySettings rejects mismatched allowlist aliases when agents.defaults.models is present", async () => {
   for (const model of SUPPORTED_MODELS) {
     const filePath = await createManagedConfigFile(`openclaw-verify-alias-${model.key}-`, 0o600);
+    const allowlist = expectedAllowlist();
+    allowlist[toPrimaryModelRef(model)] = {
+      alias: "wrong-alias"
+    };
 
     await assert.rejects(
       verifySettings(filePath, createManagedConfigFixture({
-        allowlist: {
-          [toPrimaryModelRef(model)]: {
-            alias: "wrong-alias"
-          }
-        },
+        allowlist,
         includeAllowlist: true,
         selectedModel: model
       })),
@@ -251,6 +273,24 @@ test("verifySettings rejects mismatched allowlist aliases when agents.defaults.m
       }
     );
   }
+});
+
+test("verifySettings rejects configs whose openai model catalog omits a curated model id", async () => {
+  const filePath = await createManagedConfigFile("openclaw-verify-provider-model-entry-", 0o600);
+
+  await assert.rejects(
+    verifySettings(filePath, createManagedConfigFixture({
+      openaiProvider: {
+        models: []
+      }
+    })),
+    (error) => {
+      assert.ok(error instanceof SettingsVerificationError);
+      assert.equal(error.kind, "missing_provider_model_entry");
+      assert.equal(error.fieldPath, "models.providers.openai.models");
+      return true;
+    }
+  );
 });
 
 test("verifySettings rejects configs whose permissions are not owner-only", async () => {

@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 - Added `moonshotai/Kimi-K2.6` to the curated GonkaGate model registry under the `kimi-k2.6` model key and made it the default model.
+- The installer now fetches GonkaGate `GET /v1/models` after API key entry, requires every curated model to be live, and uses the live metadata for OpenClaw provider model catalog entries.
+- The installer now creates or updates `agents.defaults.models` with the curated GonkaGate allowlist so OpenClaw `/models` can switch between supported models.
 - Raised the minimum supported Node.js runtime for this package to Node 22.14+ so it matches current OpenClaw install support expectations.
 - CI and publish workflows now both run on Node 22.14.0, and runtime documentation no longer advertises Node 18 support.
 - Upgraded `@inquirer/prompts`, `commander`, and `write-file-atomic` to current releases that are now appropriate for a Node 22.14+ baseline.
@@ -16,7 +18,7 @@
 - Installer runtime probes now distinguish a not-yet-running local Gateway from real runtime mismatches; when the Gateway is simply not running yet, install succeeds and prints `openclaw gateway` as the exact next step.
 - Runtime verification now treats malformed or shape-drifted OpenClaw probe output as a strict compatibility failure instead of downgrading it to a benign Gateway-not-running result.
 - The installer now validates both the current config and the generated candidate config through `openclaw config validate --json` before writing.
-- The managed OpenAI provider config now preserves an existing `models.providers.openai.models` array and initializes it to `[]` when missing so configs stay valid on current OpenClaw releases.
+- The managed OpenAI provider config now preserves unrelated existing `models.providers.openai.models` entries while adding or updating curated GonkaGate catalog entries required by OpenClaw's model picker.
 - The CLI now resolves the active config path compatibly with stable OpenClaw 2026.4.1 by preferring existing legacy config candidates locally before falling back to canonical `openclaw.json`, so install and verify stay aligned on legacy hosts.
 
 ## [0.1.0] - 2026-04-01
