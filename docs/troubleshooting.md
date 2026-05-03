@@ -140,6 +140,14 @@ If the Gateway still does not come up, check the local status summary:
 openclaw status --deep
 ```
 
+## `GonkaGate ... /v1/models ...` errors during install
+
+The installer checks the live GonkaGate model catalog after you enter the `gp-...` key and before it writes config.
+
+- `GonkaGate rejected the API key` means the key could not call `GET /v1/models`; check the key and rerun the installer.
+- `model catalog is temporarily unavailable` means GonkaGate returned `503`; rerun after a short wait.
+- `did not return every curated supported model` means the live catalog did not contain every model this package supports, so the installer stopped instead of writing a partial `/models` switcher.
+
 ## `Expected "models.providers.openai.baseUrl"...` or other GonkaGate field mismatch errors
 
 The config exists, but the managed GonkaGate fields no longer match the supported setup.

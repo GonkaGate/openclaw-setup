@@ -2,9 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DEFAULT_MODEL, SUPPORTED_MODELS, toPrimaryModelRef } from "../src/constants/models.js";
 import { SettingsShapeError } from "../src/install/install-errors.js";
+import { createStaticCuratedGonkaGateModelCatalog } from "../src/install/gonkagate-models.js";
 import { mergeSettingsWithGonkaGate } from "../src/install/merge-settings.js";
 
-test("mergeSettingsWithGonkaGate adds an empty openai model catalog when the provider did not define one", () => {
+function expectedAllowlist() {
+  return Object.fromEntries(
+    createStaticCuratedGonkaGateModelCatalog().map((entry) => [entry.primaryModelRef, entry.allowlistEntry])
+  );
+}
+
+function expectedProviderModels() {
+  return createStaticCuratedGonkaGateModelCatalog().map((entry) => entry.providerModel);
+}
+
+test("mergeSettingsWithGonkaGate adds the curated openai model catalog when the provider did not define one", () => {
   const merged = mergeSettingsWithGonkaGate({}, "gp-test-key", DEFAULT_MODEL);
 
   assert.deepEqual(merged.models, {
@@ -13,13 +24,13 @@ test("mergeSettingsWithGonkaGate adds an empty openai model catalog when the pro
         api: "openai-completions",
         apiKey: "gp-test-key",
         baseUrl: "https://api.gonkagate.com/v1",
-        models: []
+        models: expectedProviderModels()
       }
     }
   });
 });
 
-test("mergeSettingsWithGonkaGate preserves an existing openai model catalog and unrelated provider entries", () => {
+test("mergeSettingsWithGonkaGate merges the curated openai model catalog and unrelated provider entries", () => {
   const existingCatalog = [
     {
       id: "existing-model",
@@ -59,12 +70,15 @@ test("mergeSettingsWithGonkaGate preserves an existing openai model catalog and 
       headers: {
         "x-extra-header": "keep-me"
       },
-      models: existingCatalog
+      models: [
+        ...existingCatalog,
+        ...expectedProviderModels()
+      ]
     }
   });
 });
 
-test("mergeSettingsWithGonkaGate keeps agents.defaults.models behavior scoped to existing allowlists", () => {
+test("mergeSettingsWithGonkaGate merges curated entries into existing agents.defaults.models allowlists", () => {
   for (const model of SUPPORTED_MODELS) {
     const merged = mergeSettingsWithGonkaGate(
       {
@@ -90,19 +104,18 @@ test("mergeSettingsWithGonkaGate keeps agents.defaults.models behavior scoped to
         "openai/legacy-model": {
           alias: "legacy"
         },
-        [toPrimaryModelRef(model)]: {
-          alias: model.key
-        }
+        ...expectedAllowlist()
       }
     });
   }
 });
 
-test("mergeSettingsWithGonkaGate does not create agents.defaults.models when no allowlist existed", () => {
+test("mergeSettingsWithGonkaGate creates agents.defaults.models for the curated switcher catalog", () => {
   for (const model of SUPPORTED_MODELS) {
     const merged = mergeSettingsWithGonkaGate({}, "gp-test-key", model);
 
     assert.deepEqual((merged.agents as Record<string, unknown>).defaults, {
+      models: expectedAllowlist(),
       model: {
         primary: toPrimaryModelRef(model)
       }
@@ -156,6 +169,7 @@ test("mergeSettingsWithGonkaGate preserves unrelated agents.defaults.model keys"
   );
 
   assert.deepEqual((merged.agents as Record<string, unknown>).defaults, {
+    models: expectedAllowlist(),
     model: {
       fallback: "openai/legacy-model",
       primary: toPrimaryModelRef(DEFAULT_MODEL),

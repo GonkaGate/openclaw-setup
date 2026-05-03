@@ -1,9 +1,15 @@
-import { DEFAULT_MODEL_KEY, SUPPORTED_MODELS, requireSupportedModel, toPrimaryModelRef } from "../constants/models.js";
+import { DEFAULT_MODEL_KEY, requireSupportedModel, toPrimaryModelRef } from "../constants/models.js";
 import type { SupportedModel, SupportedModelKey } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
 import { createBackup as createBackupImpl } from "./backup.js";
 import { ensureFreshInstallLocalGateway as ensureFreshInstallLocalGatewayImpl } from "./bootstrap-gateway.js";
 import { createInstallSuccessDisplay, type CliDisplay } from "./cli-display.js";
+import {
+  fetchCuratedGonkaGateModelCatalog as fetchCuratedGonkaGateModelCatalogImpl,
+  getPromptDefaultModelKey,
+  requireModelInGonkaGateCatalog,
+  type CuratedGonkaGateModelCatalogEntry
+} from "./gonkagate-models.js";
 import { loadSettings as loadSettingsImpl, requireLoadedSettings } from "./load-settings.js";
 import { mergeSettingsWithGonkaGate } from "./merge-settings.js";
 import { createOpenClawFacade, type OpenClawFacade } from "./openclaw-facade.js";
@@ -36,6 +42,7 @@ export interface InstallOutcome {
 export interface InstallUseCaseDependencies {
   createBackup: typeof createBackupImpl;
   ensureFreshInstallLocalGateway: typeof ensureFreshInstallLocalGatewayImpl;
+  fetchCuratedGonkaGateModelCatalog: typeof fetchCuratedGonkaGateModelCatalogImpl;
   loadSettings: typeof loadSettingsImpl;
   openClaw: Pick<
     OpenClawFacade,
@@ -50,6 +57,7 @@ export interface InstallUseCaseDependencies {
 export const defaultInstallUseCaseDependencies = {
   createBackup: createBackupImpl,
   ensureFreshInstallLocalGateway: ensureFreshInstallLocalGatewayImpl,
+  fetchCuratedGonkaGateModelCatalog: fetchCuratedGonkaGateModelCatalogImpl,
   loadSettings: loadSettingsImpl,
   openClaw: createOpenClawFacade(),
   promptForApiKey: promptForApiKeyImpl,
@@ -68,10 +76,9 @@ export async function runInstallUseCase(
   dependencies.openClaw.validateConfig(request.targetPath);
 
   const apiKey = dependencies.validateApiKey(await dependencies.promptForApiKey());
-  const selectedModel = request.modelKey
-    ? requireSupportedModel(request.modelKey)
-    : await dependencies.promptForModel(SUPPORTED_MODELS, DEFAULT_MODEL_KEY);
-  const mergedSettings = mergeSettingsWithGonkaGate(configPreparation.settings, apiKey, selectedModel);
+  const modelCatalog = await dependencies.fetchCuratedGonkaGateModelCatalog(apiKey);
+  const selectedModel = await selectInstallModel(request.modelKey, modelCatalog, dependencies);
+  const mergedSettings = mergeSettingsWithGonkaGate(configPreparation.settings, apiKey, selectedModel, modelCatalog);
 
   await dependencies.openClaw.validateCandidateConfig(request.targetPath, mergedSettings);
   const backupPath = configPreparation.source === "existing" ? await dependencies.createBackup(request.targetPath) : undefined;
@@ -98,6 +105,23 @@ export async function runInstallUseCase(
   } catch (error) {
     throw markInstallErrorConfigWritten(error, request.targetPath);
   }
+}
+
+async function selectInstallModel(
+  modelKey: SupportedModelKey | undefined,
+  modelCatalog: readonly CuratedGonkaGateModelCatalogEntry[],
+  dependencies: Pick<InstallUseCaseDependencies, "promptForModel">
+): Promise<SupportedModel> {
+  if (modelKey) {
+    const selectedModel = requireSupportedModel(modelKey);
+    requireModelInGonkaGateCatalog(selectedModel, modelCatalog);
+    return selectedModel;
+  }
+
+  const availableModels = modelCatalog.map((entry) => entry.model);
+  const defaultModelKey = getPromptDefaultModelKey(modelCatalog, DEFAULT_MODEL_KEY);
+
+  return dependencies.promptForModel(availableModels, defaultModelKey);
 }
 
 async function prepareInstallConfig(

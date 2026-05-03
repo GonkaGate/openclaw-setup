@@ -23,6 +23,8 @@ The happy-path installer interactively prompts only for:
 - a `gp-...` API key
 - a model picker from the curated registry
 
+After the API key is entered, the installer fetches `GET /v1/models` from GonkaGate, requires the live catalog to contain every code-owned curated model, and uses that live metadata to populate the OpenClaw provider model catalog.
+
 If the active OpenClaw config path does not exist yet, the installer runs `openclaw setup` automatically to initialize the base OpenClaw config and workspace, ensures a minimal local Gateway mode when OpenClaw setup did not already pick one, and then applies GonkaGate-managed settings.
 
 After setup, users can run a read-only verification command:
@@ -31,7 +33,7 @@ After setup, users can run a read-only verification command:
 npx @gonkagate/openclaw verify
 ```
 
-That command checks the current active OpenClaw config path, confirms that the managed GonkaGate provider fields, curated primary model, and owner-only file permissions still match the supported setup, and then verifies that the active local OpenClaw runtime is healthy enough to load that config through read-only CLI probes.
+That command checks the current active OpenClaw config path, confirms that the managed GonkaGate provider fields, curated provider model catalog, curated `/models` allowlist, curated primary model, and owner-only file permissions still match the supported setup, and then verifies that the active local OpenClaw runtime is healthy enough to load that config through read-only CLI probes.
 
 If the installer finishes but the local OpenClaw Gateway is not running yet, that is still a successful install outcome. In that case the installer prints one exact next command:
 
@@ -51,7 +53,7 @@ These decisions are part of the repo contract. Changing them is not a small refa
 
 - `models.providers.openai.baseUrl` is always `https://api.gonkagate.com/v1`
 - `models.providers.openai.api` is always `openai-completions`
-- `models.providers.openai.models` must always end up as a valid array for current OpenClaw releases
+- `models.providers.openai.models` must always end up as a valid array containing the curated GonkaGate model catalog entries returned by `GET /v1/models`, while preserving unrelated existing entries
 - users do not choose the base URL and cannot override it in the public flow
 - the provider is always `openai`, not `anthropic`
 - model choice comes only from a code-owned curated registry
@@ -70,7 +72,8 @@ These decisions are part of the repo contract. Changing them is not a small refa
 - config files must be written with owner-only permissions
 - backup files must be written with owner-only permissions
 - `agents.defaults.model.primary` must be updated to the selected curated model
-- `agents.defaults.models` should only be merged when it already exists
+- `agents.defaults.models` must be created or updated with the curated GonkaGate allowlist so OpenClaw `/models` can switch between supported models
+- the installer must never expose arbitrary live `GET /v1/models` entries as selectable models unless they are also in the code-owned curated registry
 
 Current honest limitation:
 
@@ -85,6 +88,7 @@ This repo does:
 - onboarding for local `OpenClaw`
 - read-only verification for the managed GonkaGate OpenClaw config
 - read-only runtime verification for the active local OpenClaw Gateway and resolved primary model
+- live GonkaGate model catalog validation through `GET /v1/models` before prompting for a model
 - first-run OpenClaw config bootstrap through `openclaw setup` when needed
 - first-run minimal local Gateway bootstrap when `gateway.mode` is absent
 - persistent config writing into the active OpenClaw config path resolved from the current environment
@@ -128,6 +132,7 @@ This repo does not do:
 │   │   ├── check-openclaw.ts
 │   │   ├── cli-display.ts
 │   │   ├── file-permissions.ts
+│   │   ├── gonkagate-models.ts
 │   │   ├── install-use-case.ts
 │   │   ├── load-settings.ts
 │   │   ├── managed-settings-access.ts
@@ -157,6 +162,7 @@ This repo does not do:
 └── test/
     ├── bootstrap-gateway.test.ts
     ├── cli-run.test.ts
+    ├── gonkagate-models.test.ts
     ├── install-use-case.test.ts
     ├── load-settings.test.ts
     ├── merge-settings.test.ts
@@ -199,6 +205,7 @@ It is responsible for:
 - applying first-run-only local Gateway bootstrap logic
 - validating the current config before prompting for secrets
 - running the hidden API key prompt
+- fetching and validating the live GonkaGate model catalog before model selection
 - selecting the model
 - merging GonkaGate settings into the existing config
 - validating the generated candidate config before replacing the live file
@@ -248,6 +255,19 @@ This file contains the interactive prompts built on top of `@inquirer/prompts`:
 - model picker from the curated registry
 
 The key rule here is: do not log secrets and do not turn the main UX into CLI args for secrets.
+
+### `src/install/gonkagate-models.ts`
+
+This file owns the GonkaGate `GET /v1/models` trust boundary.
+
+It must:
+
+- call `https://api.gonkagate.com/v1/models` with the entered `gp-...` key
+- reject authentication failures before config writes
+- validate and normalize the external JSON response before the install use-case consumes it
+- keep selectable models restricted to the code-owned curated registry
+- require the live catalog to contain every curated supported model
+- map live metadata into OpenClaw provider model catalog entries without trusting unrelated response fields
 
 ### `src/install/check-openclaw.ts`
 
@@ -319,11 +339,11 @@ It must:
 - preserve unrelated top-level keys
 - preserve unrelated provider entries
 - overwrite only OpenClaw-managed `openai` provider fields
-- preserve an existing `models.providers.openai.models` array when present
-- initialize `models.providers.openai.models` to `[]` when missing so the resulting config remains valid for current OpenClaw releases
+- preserve unrelated existing `models.providers.openai.models` entries when present
+- add or update curated GonkaGate provider model catalog entries under `models.providers.openai.models`
 - set `agents.defaults.model.primary`
 - preserve unrelated keys inside `agents.defaults.model`
-- merge `agents.defaults.models` only when it already exists
+- create or update `agents.defaults.models` with every curated GonkaGate allowlist entry needed by OpenClaw `/models`
 
 It must consume the shared managed-settings boundary instead of re-deriving managed object shapes locally.
 
@@ -395,7 +415,8 @@ It must:
 - fail if GonkaGate-managed provider fields do not match the fixed product values
 - fail if `models.providers.openai.apiKey` is missing or malformed
 - fail if `agents.defaults.model.primary` does not point at a curated supported model
-- fail if `agents.defaults.models` exists but the managed allowlist entry is missing or mismatched
+- fail if `models.providers.openai.models` omits a curated GonkaGate model catalog entry
+- fail if `agents.defaults.models` is missing or any managed curated allowlist entry is missing or mismatched
 - fail if the config file permissions are not owner-only
 - never rewrite the config during verification
 
@@ -439,6 +460,7 @@ Baseline tests cover:
 - first-run minimal Gateway bootstrap behavior
 - merge behavior
 - model selection behavior
+- live GonkaGate model catalog parsing and filtering behavior
 - read-only verification behavior
 - verify orchestration ownership
 - invalid JSON5 handling
@@ -457,13 +479,14 @@ Baseline tests cover:
 6. If Gateway mode is still unset after that bootstrap, the installer sets `gateway.mode` to `local`
 7. The installer validates the current config through `openclaw config validate --json`
 8. The installer securely prompts for a `gp-...` API key
-9. The installer shows the curated model picker
-10. The config is merged with GonkaGate-managed OpenAI settings
-11. The generated candidate config is validated through `openclaw config validate --json`
-12. A backup is created only when an existing config is being overwritten
-13. JSON is written back to disk
-14. The installer performs a best-effort runtime probe
-15. If the local Gateway is not running yet, install still succeeds and prints the exact next command `openclaw gateway`
+9. The installer fetches `GET /v1/models` and confirms every curated supported model is live
+10. The installer shows the curated model picker
+11. The config is merged with GonkaGate-managed OpenAI settings, provider model catalog entries, and `/models` allowlist entries
+12. The generated candidate config is validated through `openclaw config validate --json`
+13. A backup is created only when an existing config is being overwritten
+14. JSON is written back to disk
+15. The installer performs a best-effort runtime probe
+16. If the local Gateway is not running yet, install still succeeds and prints the exact next command `openclaw gateway`
 
 Optional follow-up verification path:
 
@@ -472,7 +495,7 @@ Optional follow-up verification path:
 3. The CLI resolves the active OpenClaw config path from the current environment
 4. The CLI loads that config file without modifying it
 5. The CLI validates the current config through `openclaw config validate --json`
-6. The CLI verifies the managed GonkaGate provider fields, curated primary model, and owner-only file permissions
+6. The CLI verifies the managed GonkaGate provider fields, curated provider model catalog entries, curated `/models` allowlist, curated primary model, and owner-only file permissions
 7. The CLI confirms that the local OpenClaw Gateway RPC is reachable and the health snapshot is healthy
 8. The CLI confirms that OpenClaw resolves the expected primary model through `openclaw models status --plain`
 9. The CLI reports success or exits with a clear error
@@ -482,6 +505,7 @@ Optional follow-up verification path:
 - Do not add a base URL prompt
 - Do not add free-form custom model input
 - Do not make `--api-key` a recommended or supported path
+- Do not expose arbitrary `GET /v1/models` results as selectable models outside the curated registry
 - Do not require `openclaw onboard` in the main public flow
 - Do not modify shell rc files
 - Do not write `.env`

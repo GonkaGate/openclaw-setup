@@ -4,6 +4,7 @@ import path from "node:path";
 import process from "node:process";
 import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "../src/constants/gateway.js";
 import { DEFAULT_MODEL, toPrimaryModelRef, type SupportedModel } from "../src/constants/models.js";
+import { createStaticCuratedGonkaGateModelCatalog } from "../src/install/gonkagate-models.js";
 import type { OpenClawConfig } from "../src/types/settings.js";
 
 export async function createTempDirectory(prefix: string): Promise<string> {
@@ -77,11 +78,10 @@ export function createManagedConfigFixture(options: ManagedConfigFixtureOptions 
   const primaryModelRef = options.primaryModelRef ?? toPrimaryModelRef(selectedModel);
   const defaults = asRecord(options.defaults);
   const defaultModel = asRecord(defaults.model);
-  const allowlist = options.allowlist ?? {
-    [primaryModelRef]: {
-      alias: selectedModel.key
-    }
-  };
+  const modelCatalog = createStaticCuratedGonkaGateModelCatalog();
+  const allowlist = options.allowlist ?? Object.fromEntries(
+    modelCatalog.map((entry) => [entry.primaryModelRef, entry.allowlistEntry])
+  );
 
   return {
     models: {
@@ -90,7 +90,9 @@ export function createManagedConfigFixture(options: ManagedConfigFixtureOptions 
           baseUrl: GONKAGATE_OPENAI_BASE_URL,
           api: GONKAGATE_OPENAI_API,
           apiKey: "gp-test-key",
-          ...(options.includeOpenAiModels === false ? {} : { models: [] }),
+          ...(options.includeOpenAiModels === false
+            ? {}
+            : { models: modelCatalog.map((entry) => entry.providerModel) }),
           ...options.openaiProvider
         }
       }
@@ -102,7 +104,7 @@ export function createManagedConfigFixture(options: ManagedConfigFixtureOptions 
           ...defaultModel,
           primary: primaryModelRef
         },
-        ...(options.includeAllowlist ? { models: allowlist } : {})
+        ...(options.includeAllowlist === false ? {} : { models: allowlist })
       }
     }
   };

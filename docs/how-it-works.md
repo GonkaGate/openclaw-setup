@@ -20,12 +20,13 @@ Install flow:
 5. On true first-run installs only, ensure `gateway.mode` is set to `"local"` when OpenClaw setup did not already choose a gateway mode.
 6. Stop with a clear error if the current config is invalid, the managed config surface has an unsafe shape, or `openclaw config validate --json` rejects the current file.
 7. Prompt for the GonkaGate API key in a hidden interactive prompt.
-8. Prompt for a model from the curated in-code registry.
-9. Merge only the managed OpenAI provider fields plus `agents.defaults.model.primary`, while ensuring `models.providers.openai.models` remains a valid array.
-10. Validate the generated config through `openclaw config validate --json` against a temporary candidate file next to the live config.
-11. Create a timestamped backup next to the existing config file only when overwriting an existing config.
-12. Write the resulting config atomically with owner-only permissions.
-13. Run a best-effort runtime probe. If the local Gateway is not running yet, install still succeeds and prints the exact next command: `openclaw gateway`.
+8. Fetch the live GonkaGate catalog through `GET /v1/models` with that API key and require it to contain every curated in-code model.
+9. Prompt for a model from the curated in-code registry using live catalog metadata for the provider model entries.
+10. Merge only the managed OpenAI provider fields, the live curated `models.providers.openai.models` catalog entries, `agents.defaults.model.primary`, and the curated `agents.defaults.models` switcher allowlist.
+11. Validate the generated config through `openclaw config validate --json` against a temporary candidate file next to the live config.
+12. Create a timestamped backup next to the existing config file only when overwriting an existing config.
+13. Write the resulting config atomically with owner-only permissions.
+14. Run a best-effort runtime probe. If the local Gateway is not running yet, install still succeeds and prints the exact next command: `openclaw gateway`.
 
 Verify flow:
 
@@ -37,11 +38,12 @@ Verify flow:
 6. Confirm that `models.providers.openai.api` is still `openai-completions`.
 7. Confirm that `models.providers.openai.apiKey` exists and still looks like a GonkaGate `gp-...` key.
 8. Confirm that `agents.defaults.model.primary` still points at one of the curated GonkaGate models.
-9. If `agents.defaults.models` exists, confirm that the managed allowlist entry still matches the selected curated model alias.
-10. Confirm that the config file still uses owner-only permissions.
-11. Confirm that the local OpenClaw Gateway RPC is reachable through `openclaw gateway status --require-rpc --json`.
-12. Confirm that `openclaw health --json` reports a healthy runtime snapshot.
-13. Confirm that `openclaw models status --plain` resolves the same primary model that the saved config declares.
+9. Confirm that `models.providers.openai.models` includes every curated GonkaGate model id needed by OpenClaw's model catalog.
+10. Confirm that `agents.defaults.models` contains every curated GonkaGate allowlist entry and alias needed by `/models`.
+11. Confirm that the config file still uses owner-only permissions.
+12. Confirm that the local OpenClaw Gateway RPC is reachable through `openclaw gateway status --require-rpc --json`.
+13. Confirm that `openclaw health --json` reports a healthy runtime snapshot.
+14. Confirm that `openclaw models status --plain` resolves the same primary model that the saved config declares.
 
 Managed merge behavior:
 
@@ -49,9 +51,9 @@ Managed merge behavior:
 - Other `models.providers.*` entries are preserved.
 - Existing `models.providers.openai` keys outside the managed surface are preserved.
 - Existing `models.providers.openai.models` entries are preserved when already present and valid.
-- If `models.providers.openai.models` is missing, it is initialized to `[]` so the config stays valid for current OpenClaw releases.
+- Live curated GonkaGate entries from `GET /v1/models` are added to `models.providers.openai.models`, or updated in place when their `id` already exists.
 - Existing `agents.defaults.model` keys outside `primary` are preserved.
-- Existing `agents.defaults.models` entries are preserved and only extended when the allowlist already exists.
+- Existing `agents.defaults.models` entries are preserved, and curated GonkaGate entries are created or updated so `/models` can switch between supported models.
 - Existing `gateway.*` keys are preserved.
 - Existing `gateway.mode` is preserved when already present.
 - Only true first-run installs gain a default `gateway.mode: "local"` when the base setup omitted it.

@@ -1,6 +1,7 @@
 export const INSTALL_ERROR_CODE = {
   apiKeyInvalid: "api_key_invalid",
   cliUsageInvalid: "cli_usage_invalid",
+  gonkaGateModelsFailed: "gonkagate_models_failed",
   openClawCommandFailed: "openclaw_command_failed",
   openClawCommandExitedNonZero: "openclaw_command_exited_non_zero",
   openClawConfigValidationFailed: "openclaw_config_validation_failed",
@@ -25,6 +26,14 @@ export const RUNTIME_VERIFICATION_STEP = {
 } as const;
 export type RuntimeVerificationStep = typeof RUNTIME_VERIFICATION_STEP[keyof typeof RUNTIME_VERIFICATION_STEP];
 export type ApiKeyValidationKind = "missing" | "wrong_prefix" | "invalid_format";
+export type GonkaGateModelsFailureKind =
+  | "authentication_failed"
+  | "catalog_unavailable"
+  | "invalid_response"
+  | "missing_supported_models"
+  | "missing_selected_model"
+  | "no_supported_models"
+  | "request_failed";
 export type OpenClawConfigValidationKind = "command_failed" | "invalid_config" | "unexpected_validated_path";
 export type PromptFailureKind = "cancelled" | "missing_tty" | "model_registry_mismatch" | "no_supported_models";
 export type SettingsMissingKind = "post_setup_target_missing" | "target_config_missing";
@@ -34,6 +43,7 @@ export type SettingsVerificationKind =
   | "invalid_permissions"
   | "missing_allowlist_entry"
   | "missing_managed_value"
+  | "missing_provider_model_entry"
   | "mismatched_allowlist_alias"
   | "mismatched_managed_value"
   | "permissions_check_failed";
@@ -94,6 +104,27 @@ export class ApiKeyValidationError<Kind extends ApiKeyValidationKind = ApiKeyVal
   constructor(kind: Kind, message: string, options?: ErrorOptions) {
     super(INSTALL_ERROR_CODE.apiKeyInvalid, message, options);
     this.kind = kind;
+  }
+}
+
+export class GonkaGateModelsError<Kind extends GonkaGateModelsFailureKind = GonkaGateModelsFailureKind> extends InstallError {
+  readonly actual?: string;
+  readonly expected?: string;
+  readonly kind: Kind;
+  readonly status?: number;
+
+  constructor(options: {
+    actual?: string;
+    expected?: string;
+    kind: Kind;
+    message: string;
+    status?: number;
+  } & ErrorOptions) {
+    super(INSTALL_ERROR_CODE.gonkaGateModelsFailed, options.message, options);
+    this.actual = options.actual;
+    this.expected = options.expected;
+    this.kind = options.kind;
+    this.status = options.status;
   }
 }
 

@@ -6,6 +6,7 @@ Current protections:
 
 - API keys are accepted only through a hidden interactive prompt.
 - `--api-key` CLI arguments are rejected to avoid leaking secrets into shell history and process listings.
+- The entered API key is sent only to GonkaGate `GET /v1/models` for live catalog validation before it is written into the OpenClaw config.
 - Generated configs are schema-validated through a temporary candidate file before the live config is replaced.
 - Existing configs are backed up before overwrite.
 - Config writes are atomic.
