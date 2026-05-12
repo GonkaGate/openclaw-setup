@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/GonkaGate/openclaw-setup/compare/v0.2.0...v0.2.1) (2026-05-12)
+
+
+### Bug Fixes
+
+* align Kimi model id with catalog ([32e118c](https://github.com/GonkaGate/openclaw-setup/commit/32e118c1f6d1670a0b731398151675d8781c8389))
+* align Kimi model id with catalog ([2da6500](https://github.com/GonkaGate/openclaw-setup/commit/2da6500d77c568b61dbaf65573074a01450fb3fc))
+
 ## [0.2.0](https://github.com/GonkaGate/openclaw-setup/compare/v0.1.0...v0.2.0) (2026-05-03)
 
 
