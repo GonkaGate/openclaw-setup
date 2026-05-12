@@ -79,7 +79,7 @@ Current honest limitation:
 
 - the curated registry currently contains these supported models:
   - `qwen3-235b` -> `qwen/qwen3-235b-a22b-instruct-2507-fp8`
-  - `kimi-k2.6` -> `moonshotai/Kimi-K2.6` (default)
+  - `kimi-k2.6` -> `moonshotai/kimi-k2.6` (default)
 
 ## What the Repo Does and Does Not Do
 

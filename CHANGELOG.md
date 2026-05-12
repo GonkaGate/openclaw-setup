@@ -12,7 +12,7 @@
 
 ## [Unreleased]
 
-- Added `moonshotai/Kimi-K2.6` to the curated GonkaGate model registry under the `kimi-k2.6` model key and made it the default model.
+- Added `moonshotai/kimi-k2.6` to the curated GonkaGate model registry under the `kimi-k2.6` model key and made it the default model.
 - The installer now fetches GonkaGate `GET /v1/models` after API key entry, requires every curated model to be live, and uses the live metadata for OpenClaw provider model catalog entries.
 - The installer now creates or updates `agents.defaults.models` with the curated GonkaGate allowlist so OpenClaw `/models` can switch between supported models.
 - Raised the minimum supported Node.js runtime for this package to Node 22.14+ so it matches current OpenClaw install support expectations.
