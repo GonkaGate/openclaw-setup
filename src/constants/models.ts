@@ -19,7 +19,7 @@ const curatedModelRegistry = [
   {
     key: "kimi-k2.6",
     displayName: "Kimi K2.6",
-    modelId: "moonshotai/Kimi-K2.6",
+    modelId: "moonshotai/kimi-k2.6",
     description: "Recommended default for long-horizon coding and agentic workflows on GonkaGate.",
     isDefault: true
   }

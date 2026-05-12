@@ -23,7 +23,7 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
           object: "list",
           data: [
             {
-              id: "moonshotai/Kimi-K2.6",
+              id: "moonshotai/kimi-k2.6",
               name: "Kimi K2.6 Live",
               object: "model"
             },
@@ -54,7 +54,7 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
     name: "Qwen3 235B A22B Instruct 2507 FP8"
   });
   assert.deepEqual(catalog[1]?.providerModel, {
-    id: "moonshotai/Kimi-K2.6",
+    id: "moonshotai/kimi-k2.6",
     name: "Kimi K2.6 Live"
   });
 });
@@ -159,7 +159,7 @@ test("fetchCuratedGonkaGateModelCatalog rejects catalogs that omit a curated sup
     (error) => {
       assert.ok(error instanceof GonkaGateModelsError);
       assert.equal(error.kind, "missing_supported_models");
-      assert.match(error.message, /moonshotai\/Kimi-K2\.6/);
+      assert.match(error.message, /moonshotai\/kimi-k2\.6/);
       return true;
     }
   );
