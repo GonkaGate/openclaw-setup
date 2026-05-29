@@ -20,6 +20,7 @@
 
 ## [Unreleased]
 
+- Added `minimaxai/minimax-m2.7` to the curated GonkaGate model registry under the `minimax-m2.7` model key.
 - Added `moonshotai/kimi-k2.6` to the curated GonkaGate model registry under the `kimi-k2.6` model key and made it the default model.
 - The installer now fetches GonkaGate `GET /v1/models` after API key entry, requires every curated model to be live, and uses the live metadata for OpenClaw provider model catalog entries.
 - The installer now creates or updates `agents.defaults.models` with the curated GonkaGate allowlist so OpenClaw `/models` can switch between supported models.
