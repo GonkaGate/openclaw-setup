@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/GonkaGate/openclaw-setup/compare/v0.2.1...v0.3.0) (2026-05-29)
+
+
+### Features
+
+* add MiniMax M2.7 model ([64cbac1](https://github.com/GonkaGate/openclaw-setup/commit/64cbac186e972e03401784ecb229c52467b2c43f))
+* add MiniMax M2.7 model ([602dfe2](https://github.com/GonkaGate/openclaw-setup/commit/602dfe2978a95e04bec2fe9ea71577009dbaf14c))
+
 ## [0.2.1](https://github.com/GonkaGate/openclaw-setup/compare/v0.2.0...v0.2.1) (2026-05-12)
 
 
