@@ -33,6 +33,11 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
               object: "model"
             },
             {
+              id: "minimaxai/minimax-m2.7",
+              name: "MiniMax M2.7 Live",
+              object: "model"
+            },
+            {
               context_length: 262144,
               id: "qwen/qwen3-235b-a22b-instruct-2507-fp8",
               name: "Qwen3 235B A22B Instruct 2507 FP8",
@@ -47,7 +52,7 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
 
   assert.equal(capturedUrl, "https://api.gonkagate.com/v1/models");
   assert.equal(capturedAuthorization, "Bearer gp-test-key");
-  assert.deepEqual(catalog.map((entry) => entry.model.key), ["qwen3-235b", "kimi-k2.6"]);
+  assert.deepEqual(catalog.map((entry) => entry.model.key), ["qwen3-235b", "kimi-k2.6", "minimax-m2.7"]);
   assert.deepEqual(catalog[0]?.providerModel, {
     contextWindow: 262144,
     id: "qwen/qwen3-235b-a22b-instruct-2507-fp8",
@@ -56,6 +61,10 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
   assert.deepEqual(catalog[1]?.providerModel, {
     id: "moonshotai/kimi-k2.6",
     name: "Kimi K2.6 Live"
+  });
+  assert.deepEqual(catalog[2]?.providerModel, {
+    id: "minimaxai/minimax-m2.7",
+    name: "MiniMax M2.7 Live"
   });
 });
 
@@ -82,6 +91,9 @@ test("fetchCuratedGonkaGateModelCatalog retries temporary catalog unavailability
             },
             {
               id: "qwen/qwen3-235b-a22b-instruct-2507-fp8"
+            },
+            {
+              id: "minimaxai/minimax-m2.7"
             }
           ]
         })
@@ -92,7 +104,7 @@ test("fetchCuratedGonkaGateModelCatalog retries temporary catalog unavailability
   });
 
   assert.equal(calls, 2);
-  assert.deepEqual(catalog.map((entry) => entry.model.key), ["qwen3-235b", DEFAULT_MODEL.key]);
+  assert.deepEqual(catalog.map((entry) => entry.model.key), ["qwen3-235b", DEFAULT_MODEL.key, "minimax-m2.7"]);
 });
 
 test("fetchCuratedGonkaGateModelCatalog rejects invalid API keys before config writes", async () => {
@@ -160,6 +172,7 @@ test("fetchCuratedGonkaGateModelCatalog rejects catalogs that omit a curated sup
       assert.ok(error instanceof GonkaGateModelsError);
       assert.equal(error.kind, "missing_supported_models");
       assert.match(error.message, /moonshotai\/kimi-k2\.6/);
+      assert.match(error.message, /minimaxai\/minimax-m2\.7/);
       return true;
     }
   );

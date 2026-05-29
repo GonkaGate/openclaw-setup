@@ -681,7 +681,7 @@ test("runInstallUseCase prompts with the curated models returned by the live Gon
     targetPath: "/tmp/openclaw.json"
   }, dependencies);
 
-  assert.deepEqual(promptModels, ["qwen3-235b", "kimi-k2.6"]);
+  assert.deepEqual(promptModels, ["qwen3-235b", "kimi-k2.6", "minimax-m2.7"]);
   assert.equal(promptDefaultModelKey, DEFAULT_MODEL_KEY);
   assert.equal(state.writeCalls, 1);
   assert.deepEqual(((state.writtenSettings?.agents as Record<string, unknown>).defaults as Record<string, unknown>).model, {
