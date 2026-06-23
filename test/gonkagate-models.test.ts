@@ -38,7 +38,7 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
               object: "model"
             },
             {
-              context_length: 262144,
+              context_length: 240000,
               id: "qwen/qwen3-235b-a22b-instruct-2507-fp8",
               name: "Qwen3 235B A22B Instruct 2507 FP8",
               object: "model"
@@ -54,7 +54,7 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
   assert.equal(capturedAuthorization, "Bearer gp-test-key");
   assert.deepEqual(catalog.map((entry) => entry.model.key), ["qwen3-235b", "kimi-k2.6", "minimax-m2.7"]);
   assert.deepEqual(catalog[0]?.providerModel, {
-    contextWindow: 262144,
+    contextWindow: 240000,
     id: "qwen/qwen3-235b-a22b-instruct-2507-fp8",
     name: "Qwen3 235B A22B Instruct 2507 FP8"
   });
