@@ -158,9 +158,9 @@ Implementation choices in this repository were aligned to these primary sources:
 
 - [OpenClaw Configuration](https://docs.openclaw.ai/gateway/configuration)
 - [OpenClaw Configuration Reference](https://docs.openclaw.ai/gateway/configuration-reference)
-- [GonkaGate OpenClaw Integration Guide](https://gonkagate.com/en/docs/guides/openclaw-integration)
-- [GonkaGate Model Selection Guide](https://gonkagate.com/en/docs/guides/overview/models)
-- [GonkaGate GET /v1/models API Reference](https://gonkagate.com/en/docs/api/api-reference/models/get-models)
+- [GonkaGate OpenClaw Integration Guide](https://gonkagate.com/en/docs/guides/openclaw-integration?utm_source=github&utm_medium=referral&utm_campaign=openclaw_setup&utm_content=readme_docs_list)
+- [GonkaGate Model Selection Guide](https://gonkagate.com/en/docs/guides/overview/models?utm_source=github&utm_medium=referral&utm_campaign=openclaw_setup&utm_content=readme_docs_list)
+- [GonkaGate GET /v1/models API Reference](https://gonkagate.com/en/docs/api/api-reference/models/get-models?utm_source=github&utm_medium=referral&utm_campaign=openclaw_setup&utm_content=readme_docs_list)
 
 ## Development
 
