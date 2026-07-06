@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/GonkaGate/openclaw-setup/compare/v0.3.0...v0.4.0) (2026-07-06)
+
+
+### Features
+
+* fetch GonkaGate models dynamically ([7759f79](https://github.com/GonkaGate/openclaw-setup/commit/7759f79723372c1092d66a25f081dfd050e47e6f))
+
 ## [0.3.0](https://github.com/GonkaGate/openclaw-setup/compare/v0.2.1...v0.3.0) (2026-05-29)
 
 
