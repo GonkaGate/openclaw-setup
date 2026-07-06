@@ -1,14 +1,14 @@
-import { DEFAULT_MODEL_KEY, requireSupportedModel, toPrimaryModelRef } from "../constants/models.js";
-import type { SupportedModel, SupportedModelKey } from "../constants/models.js";
+import { toPrimaryModelRef } from "../constants/models.js";
+import type { GonkaGateModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
 import { createBackup as createBackupImpl } from "./backup.js";
 import { ensureFreshInstallLocalGateway as ensureFreshInstallLocalGatewayImpl } from "./bootstrap-gateway.js";
 import { createInstallSuccessDisplay, type CliDisplay } from "./cli-display.js";
 import {
-  fetchCuratedGonkaGateModelCatalog as fetchCuratedGonkaGateModelCatalogImpl,
+  fetchGonkaGateModelCatalog as fetchGonkaGateModelCatalogImpl,
   getPromptDefaultModelKey,
   requireModelInGonkaGateCatalog,
-  type CuratedGonkaGateModelCatalogEntry
+  type GonkaGateModelCatalogEntry
 } from "./gonkagate-models.js";
 import { loadSettings as loadSettingsImpl, requireLoadedSettings } from "./load-settings.js";
 import { mergeSettingsWithGonkaGate } from "./merge-settings.js";
@@ -26,7 +26,7 @@ export interface InstallConfigPreparationResult {
 }
 
 export interface InstallRequest {
-  modelKey?: SupportedModelKey;
+  modelId?: string;
   targetPath: string;
 }
 
@@ -35,14 +35,14 @@ export interface InstallOutcome {
   configPreparation: InstallConfigPreparationResult;
   display: CliDisplay;
   runtime: InstallRuntimeCheckResult;
-  selectedModel: SupportedModel;
+  selectedModel: GonkaGateModel;
   targetPath: string;
 }
 
 export interface InstallUseCaseDependencies {
   createBackup: typeof createBackupImpl;
   ensureFreshInstallLocalGateway: typeof ensureFreshInstallLocalGatewayImpl;
-  fetchCuratedGonkaGateModelCatalog: typeof fetchCuratedGonkaGateModelCatalogImpl;
+  fetchGonkaGateModelCatalog: typeof fetchGonkaGateModelCatalogImpl;
   loadSettings: typeof loadSettingsImpl;
   openClaw: Pick<
     OpenClawFacade,
@@ -57,7 +57,7 @@ export interface InstallUseCaseDependencies {
 export const defaultInstallUseCaseDependencies = {
   createBackup: createBackupImpl,
   ensureFreshInstallLocalGateway: ensureFreshInstallLocalGatewayImpl,
-  fetchCuratedGonkaGateModelCatalog: fetchCuratedGonkaGateModelCatalogImpl,
+  fetchGonkaGateModelCatalog: fetchGonkaGateModelCatalogImpl,
   loadSettings: loadSettingsImpl,
   openClaw: createOpenClawFacade(),
   promptForApiKey: promptForApiKeyImpl,
@@ -76,8 +76,8 @@ export async function runInstallUseCase(
   dependencies.openClaw.validateConfig(request.targetPath);
 
   const apiKey = dependencies.validateApiKey(await dependencies.promptForApiKey());
-  const modelCatalog = await dependencies.fetchCuratedGonkaGateModelCatalog(apiKey);
-  const selectedModel = await selectInstallModel(request.modelKey, modelCatalog, dependencies);
+  const modelCatalog = await dependencies.fetchGonkaGateModelCatalog(apiKey);
+  const selectedModel = await selectInstallModel(request.modelId, modelCatalog, dependencies);
   const mergedSettings = mergeSettingsWithGonkaGate(configPreparation.settings, apiKey, selectedModel, modelCatalog);
 
   await dependencies.openClaw.validateCandidateConfig(request.targetPath, mergedSettings);
@@ -108,18 +108,16 @@ export async function runInstallUseCase(
 }
 
 async function selectInstallModel(
-  modelKey: SupportedModelKey | undefined,
-  modelCatalog: readonly CuratedGonkaGateModelCatalogEntry[],
+  modelId: string | undefined,
+  modelCatalog: readonly GonkaGateModelCatalogEntry[],
   dependencies: Pick<InstallUseCaseDependencies, "promptForModel">
-): Promise<SupportedModel> {
-  if (modelKey) {
-    const selectedModel = requireSupportedModel(modelKey);
-    requireModelInGonkaGateCatalog(selectedModel, modelCatalog);
-    return selectedModel;
+): Promise<GonkaGateModel> {
+  if (modelId) {
+    return requireModelInGonkaGateCatalog(modelId, modelCatalog);
   }
 
   const availableModels = modelCatalog.map((entry) => entry.model);
-  const defaultModelKey = getPromptDefaultModelKey(modelCatalog, DEFAULT_MODEL_KEY);
+  const defaultModelKey = getPromptDefaultModelKey(modelCatalog);
 
   return dependencies.promptForModel(availableModels, defaultModelKey);
 }

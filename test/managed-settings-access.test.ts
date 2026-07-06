@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
+import { toPrimaryModelRef } from "../src/constants/models.js";
 import { readManagedSettingsView } from "../src/install/managed-settings-access.js";
 import type { OpenClawConfig } from "../src/types/settings.js";
-import { createManagedConfigFixture } from "./test-helpers.js";
+import { TEST_MODEL, createManagedConfigFixture } from "./test-helpers.js";
 
 test("readManagedSettingsView exposes managed branches without inventing optional structures", () => {
   const settings: OpenClawConfig = {
@@ -33,7 +33,7 @@ test("readManagedSettingsView exposes managed branches without inventing optiona
 
   assert.deepEqual(view.defaults, {
     model: {
-      primary: toPrimaryModelRef(DEFAULT_MODEL)
+      primary: toPrimaryModelRef(TEST_MODEL)
     },
     workspace: {
       root: "~/.openclaw/workspace"

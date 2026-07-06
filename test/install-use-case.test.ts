@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_MODEL, DEFAULT_MODEL_KEY, requireSupportedModel, toPrimaryModelRef } from "../src/constants/models.js";
+import { toPrimaryModelRef } from "../src/constants/models.js";
 import { GonkaGateModelsError, InstallError } from "../src/install/install-errors.js";
-import { createStaticCuratedGonkaGateModelCatalog } from "../src/install/gonkagate-models.js";
 import type { OpenClawConfig } from "../src/types/settings.js";
 import {
   runInstallUseCase,
   type InstallUseCaseDependencies
 } from "../src/install/install-use-case.js";
+import { TEST_MODEL, TEST_MODEL_BETA, createTestModelCatalog } from "./test-helpers.js";
 
 interface RuntimeVerifyInput {
   expectedPrimaryModelRef: string;
@@ -62,7 +62,7 @@ function recordStep(state: InstallHarnessState, step: string): void {
 function createHealthyRuntimeResult() {
   return {
     kind: "healthy" as const,
-    resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
+    resolvedPrimaryModelRef: toPrimaryModelRef(TEST_MODEL)
   };
 }
 
@@ -73,18 +73,18 @@ function createGatewayUnavailableInstallResult() {
   };
 }
 
-function createStaticModelCatalog() {
-  return createStaticCuratedGonkaGateModelCatalog();
+function createLiveModelCatalog() {
+  return createTestModelCatalog();
 }
 
 function expectedAllowlist() {
   return Object.fromEntries(
-    createStaticModelCatalog().map((entry) => [entry.primaryModelRef, entry.allowlistEntry])
+    createLiveModelCatalog().map((entry) => [entry.primaryModelRef, entry.allowlistEntry])
   );
 }
 
 function expectedProviderModels() {
-  return createStaticModelCatalog().map((entry) => entry.providerModel);
+  return createLiveModelCatalog().map((entry) => entry.providerModel);
 }
 
 function createInstallHarness(
@@ -162,10 +162,10 @@ function createInstallHarness(
       recordStep(state, "bootstrapGateway");
       return createGatewayBootstrapResult(withLocalGatewayMode(settings), true);
     },
-    fetchCuratedGonkaGateModelCatalog: async () => {
+    fetchGonkaGateModelCatalog: async () => {
       state.fetchModelCatalogCalls += 1;
       recordStep(state, "fetchModelCatalog");
-      return createStaticModelCatalog();
+      return createLiveModelCatalog();
     },
     loadSettings: async (filePath) => {
       state.loadCalls += 1;
@@ -185,7 +185,7 @@ function createInstallHarness(
     promptForModel: async () => {
       state.promptModelCalls += 1;
       recordStep(state, "promptModel");
-      return DEFAULT_MODEL;
+      return TEST_MODEL;
     },
     validateApiKey: (apiKey) => {
       state.validateCalls += 1;
@@ -259,8 +259,8 @@ test("runInstallUseCase initializes missing OpenClaw config automatically and sk
         verifyRuntimeForInstall: () => createGatewayUnavailableInstallResult()
       },
       promptForApiKey: async () => "gp-test-key",
-      fetchCuratedGonkaGateModelCatalog: async () => createStaticModelCatalog(),
-      promptForModel: async () => DEFAULT_MODEL,
+      fetchGonkaGateModelCatalog: async () => createLiveModelCatalog(),
+      promptForModel: async () => TEST_MODEL,
       validateApiKey: (apiKey) => apiKey,
       writeSettings: async (_filePath, settings) => {
         writtenSettings = settings as Record<string, unknown>;
@@ -281,7 +281,7 @@ test("runInstallUseCase initializes missing OpenClaw config automatically and sk
         workspace: "~/.openclaw/workspace",
         models: expectedAllowlist(),
         model: {
-          primary: toPrimaryModelRef(DEFAULT_MODEL)
+          primary: toPrimaryModelRef(TEST_MODEL)
         }
       }
     },
@@ -345,8 +345,8 @@ test("runInstallUseCase preserves an existing gateway.mode from fresh OpenClaw s
         verifyRuntimeForInstall: () => createGatewayUnavailableInstallResult()
       },
       promptForApiKey: async () => "gp-test-key",
-      fetchCuratedGonkaGateModelCatalog: async () => createStaticModelCatalog(),
-      promptForModel: async () => DEFAULT_MODEL,
+      fetchGonkaGateModelCatalog: async () => createLiveModelCatalog(),
+      promptForModel: async () => TEST_MODEL,
       validateApiKey: (apiKey) => apiKey,
       writeSettings: async (_filePath, settings) => {
         writtenSettings = settings as Record<string, unknown>;
@@ -426,7 +426,7 @@ test("runInstallUseCase uses a resolved legacy target path consistently across l
   assert.deepEqual(state.writePaths, [targetPath]);
   assert.deepEqual(state.runtimeVerifyInputs, [
     {
-      expectedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
+      expectedPrimaryModelRef: toPrimaryModelRef(TEST_MODEL),
       filePath: targetPath
     }
   ]);
@@ -477,7 +477,7 @@ test("runInstallUseCase fails after writing when the Gateway is reachable but un
   assert.equal(state.writeCalls, 1);
 });
 
-test("runInstallUseCase uses the curated --model value without prompting for a model", async () => {
+test("runInstallUseCase uses a live --model id without prompting for a model", async () => {
   const { dependencies, state } = createInstallHarness({
     dependencies: {
       promptForModel: async () => {
@@ -487,7 +487,7 @@ test("runInstallUseCase uses the curated --model value without prompting for a m
   });
 
   await runInstallUseCase({
-    modelKey: DEFAULT_MODEL_KEY,
+    modelId: TEST_MODEL.modelId,
     targetPath: "/tmp/openclaw.json"
   }, dependencies);
 
@@ -500,7 +500,7 @@ test("runInstallUseCase uses the curated --model value without prompting for a m
   assert.deepEqual((state.writtenSettings?.agents as Record<string, unknown>).defaults, {
     models: expectedAllowlist(),
     model: {
-      primary: toPrimaryModelRef(DEFAULT_MODEL)
+      primary: toPrimaryModelRef(TEST_MODEL)
     }
   });
 });
@@ -563,8 +563,8 @@ test("runInstallUseCase surfaces a clear error when OpenClaw setup does not crea
         promptCalls += 1;
         return "gp-test-key";
       },
-      fetchCuratedGonkaGateModelCatalog: async () => createStaticModelCatalog(),
-      promptForModel: async () => DEFAULT_MODEL,
+      fetchGonkaGateModelCatalog: async () => createLiveModelCatalog(),
+      promptForModel: async () => TEST_MODEL,
       validateApiKey: (apiKey) => apiKey,
       writeSettings: async () => {}
     }
@@ -638,7 +638,7 @@ test("runInstallUseCase stops before the model prompt when the live GonkaGate ca
   });
   const { dependencies, state } = createInstallHarness({
     dependencies: {
-      fetchCuratedGonkaGateModelCatalog: async () => {
+      fetchGonkaGateModelCatalog: async () => {
         state.fetchModelCatalogCalls += 1;
         throw failure;
       }
@@ -659,20 +659,20 @@ test("runInstallUseCase stops before the model prompt when the live GonkaGate ca
   assert.equal(state.writeCalls, 0);
 });
 
-test("runInstallUseCase prompts with the curated models returned by the live GonkaGate catalog", async () => {
+test("runInstallUseCase prompts with all models returned by the live GonkaGate catalog", async () => {
   let promptModels: string[] = [];
   let promptDefaultModelKey: string | undefined;
   const { dependencies, state } = createInstallHarness({
     dependencies: {
-      fetchCuratedGonkaGateModelCatalog: async () => {
+      fetchGonkaGateModelCatalog: async () => {
         state.fetchModelCatalogCalls += 1;
-        return createStaticModelCatalog();
+        return createLiveModelCatalog();
       },
       promptForModel: async (models, defaultModelKey) => {
         state.promptModelCalls += 1;
         promptModels = models.map((model) => model.key);
         promptDefaultModelKey = defaultModelKey;
-        return DEFAULT_MODEL;
+        return TEST_MODEL;
       }
     }
   });
@@ -681,28 +681,27 @@ test("runInstallUseCase prompts with the curated models returned by the live Gon
     targetPath: "/tmp/openclaw.json"
   }, dependencies);
 
-  assert.deepEqual(promptModels, ["qwen3-235b", "kimi-k2.6", "minimax-m2.7"]);
-  assert.equal(promptDefaultModelKey, DEFAULT_MODEL_KEY);
+  assert.deepEqual(promptModels, [TEST_MODEL.modelId, TEST_MODEL_BETA.modelId]);
+  assert.equal(promptDefaultModelKey, TEST_MODEL.modelId);
   assert.equal(state.writeCalls, 1);
   assert.deepEqual(((state.writtenSettings?.agents as Record<string, unknown>).defaults as Record<string, unknown>).model, {
-    primary: toPrimaryModelRef(DEFAULT_MODEL)
+    primary: toPrimaryModelRef(TEST_MODEL)
   });
 });
 
-test("runInstallUseCase rejects --model values that are curated but absent from the live GonkaGate catalog", async () => {
-  const qwen = requireSupportedModel("qwen3-235b");
+test("runInstallUseCase rejects --model values absent from the live GonkaGate catalog", async () => {
   const { dependencies, state } = createInstallHarness({
     dependencies: {
-      fetchCuratedGonkaGateModelCatalog: async () => {
+      fetchGonkaGateModelCatalog: async () => {
         state.fetchModelCatalogCalls += 1;
-        return createStaticCuratedGonkaGateModelCatalog([qwen]);
+        return createTestModelCatalog([{ id: TEST_MODEL_BETA.modelId, name: TEST_MODEL_BETA.displayName }]);
       }
     }
   });
 
   await assert.rejects(
     runInstallUseCase({
-      modelKey: DEFAULT_MODEL_KEY,
+      modelId: TEST_MODEL.modelId,
       targetPath: "/tmp/openclaw.json"
     }, dependencies),
     (error) => {

@@ -1,4 +1,4 @@
-import type { SupportedModel } from "../constants/models.js";
+import type { GonkaGateModel } from "../constants/models.js";
 import { formatUnixMode } from "./file-permissions.js";
 
 export interface CliDisplaySection {
@@ -25,14 +25,14 @@ interface InstallDisplayInput {
         kind: "healthy";
         resolvedPrimaryModelRef: string;
       };
-  selectedModel: SupportedModel;
+  selectedModel: GonkaGateModel;
   targetPath: string;
 }
 
 interface VerifyDisplayInput {
   configMode: number;
   resolvedPrimaryModelRef: string;
-  selectedModel: SupportedModel;
+  selectedModel: GonkaGateModel;
   targetPath: string;
 }
 

@@ -3,9 +3,36 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "../src/constants/gateway.js";
-import { DEFAULT_MODEL, toPrimaryModelRef, type SupportedModel } from "../src/constants/models.js";
-import { createStaticCuratedGonkaGateModelCatalog } from "../src/install/gonkagate-models.js";
+import { toPrimaryModelRef, type GonkaGateModel } from "../src/constants/models.js";
+import { createGonkaGateModelCatalog, type LiveGonkaGateModel } from "../src/install/gonkagate-models.js";
 import type { OpenClawConfig } from "../src/types/settings.js";
+
+export const TEST_LIVE_MODELS: readonly LiveGonkaGateModel[] = [
+  {
+    id: "acme/model-alpha",
+    name: "Acme Model Alpha"
+  },
+  {
+    id: "globex/model-beta",
+    name: "Globex Model Beta"
+  }
+];
+
+export const TEST_MODEL: GonkaGateModel = {
+  displayName: "Acme Model Alpha",
+  key: "acme/model-alpha",
+  modelId: "acme/model-alpha"
+};
+
+export const TEST_MODEL_BETA: GonkaGateModel = {
+  displayName: "Globex Model Beta",
+  key: "globex/model-beta",
+  modelId: "globex/model-beta"
+};
+
+export function createTestModelCatalog(models: readonly LiveGonkaGateModel[] = TEST_LIVE_MODELS) {
+  return createGonkaGateModelCatalog(models);
+}
 
 export async function createTempDirectory(prefix: string): Promise<string> {
   return mkdtemp(path.join(tmpdir(), prefix));
@@ -70,15 +97,15 @@ interface ManagedConfigFixtureOptions {
   includeOpenAiModels?: boolean;
   openaiProvider?: Record<string, unknown>;
   primaryModelRef?: string;
-  selectedModel?: SupportedModel;
+  selectedModel?: GonkaGateModel;
 }
 
 export function createManagedConfigFixture(options: ManagedConfigFixtureOptions = {}): OpenClawConfig {
-  const selectedModel = options.selectedModel ?? DEFAULT_MODEL;
+  const selectedModel = options.selectedModel ?? TEST_MODEL;
   const primaryModelRef = options.primaryModelRef ?? toPrimaryModelRef(selectedModel);
   const defaults = asRecord(options.defaults);
   const defaultModel = asRecord(defaults.model);
-  const modelCatalog = createStaticCuratedGonkaGateModelCatalog();
+  const modelCatalog = createTestModelCatalog();
   const allowlist = options.allowlist ?? Object.fromEntries(
     modelCatalog.map((entry) => [entry.primaryModelRef, entry.allowlistEntry])
   );

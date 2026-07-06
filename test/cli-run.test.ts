@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { formatCliErrorMessage, parseCliOptions, parseCliRequest, run } from "../src/cli.js";
-import { DEFAULT_MODEL, DEFAULT_MODEL_KEY, toPrimaryModelRef } from "../src/constants/models.js";
+import { toPrimaryModelRef } from "../src/constants/models.js";
 import { CliUsageError, RuntimeVerificationError } from "../src/install/install-errors.js";
 import type { InstallOutcome } from "../src/install/install-use-case.js";
-import { withCapturedConsoleLog } from "./test-helpers.js";
+import { TEST_MODEL, withCapturedConsoleLog } from "./test-helpers.js";
 
 const silentOutput = {
   writeOut: () => {},
@@ -39,15 +39,15 @@ function createGatewayUnavailableInstallResult(): InstallOutcome {
       kind: "healthy",
       resolvedPrimaryModelRef: "openai/not-used-by-cli"
     },
-    selectedModel: DEFAULT_MODEL,
+    selectedModel: TEST_MODEL,
     targetPath: "/tmp/openclaw.json"
   };
 }
 
-test("parseCliOptions accepts supported --model values and rejects unsupported ones", () => {
-  assert.equal(parseCliOptions(["--model", DEFAULT_MODEL_KEY], silentOutput).modelKey, DEFAULT_MODEL_KEY);
-  assert.equal(parseCliOptions([`--model=${DEFAULT_MODEL_KEY}`], silentOutput).modelKey, DEFAULT_MODEL_KEY);
-  assert.throws(() => parseCliOptions(["--model", "not-supported"], silentOutput), /Allowed choices are/);
+test("parseCliOptions accepts --model values for live validation after catalog fetch", () => {
+  assert.equal(parseCliOptions(["--model", TEST_MODEL.modelId], silentOutput).modelId, TEST_MODEL.modelId);
+  assert.equal(parseCliOptions([`--model=${TEST_MODEL.modelId}`], silentOutput).modelId, TEST_MODEL.modelId);
+  assert.equal(parseCliOptions(["--model", "not-yet-known/model"], silentOutput).modelId, "not-yet-known/model");
 });
 
 test("parseCliRequest routes the verify subcommand separately from the install flow", () => {
@@ -76,7 +76,7 @@ test("parseCliOptions rejects --api-key arguments", () => {
 });
 
 test("run delegates install requests to the install use case with the resolved target path", async () => {
-  let capturedRequest: { modelKey?: string; targetPath: string } | undefined;
+  let capturedRequest: { modelId?: string; targetPath: string } | undefined;
   let verifyCalls = 0;
 
   await withCapturedConsoleLog(async () => {
@@ -122,8 +122,8 @@ test("run delegates verify requests to the verify use case with the resolved tar
               }
             ]
           },
-          resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
-          selectedModel: DEFAULT_MODEL,
+          resolvedPrimaryModelRef: toPrimaryModelRef(TEST_MODEL),
+          selectedModel: TEST_MODEL,
           targetPath
         };
       }
@@ -167,7 +167,7 @@ test("run prints verification success details from the verify use case outcome",
         },
         resolvedPrimaryModelRef: "not-used-by-cli",
         selectedModel: {
-          ...DEFAULT_MODEL,
+          ...TEST_MODEL,
           displayName: "Not used by CLI"
         },
         targetPath
@@ -178,7 +178,7 @@ test("run prints verification success details from the verify use case outcome",
   assert.equal(logs.some((line) => line.includes("Verification complete.")), true);
   assert.equal(logs.some((line) => line.includes("Permissions: 0o600")), true);
   assert.equal(logs.some((line) => line.includes("display-owned-model")), true);
-  assert.equal(logs.some((line) => line.includes(toPrimaryModelRef(DEFAULT_MODEL))), false);
+  assert.equal(logs.some((line) => line.includes(toPrimaryModelRef(TEST_MODEL))), false);
 });
 
 test("run stops before any use case when resolving the target path fails", async () => {
@@ -202,8 +202,8 @@ test("run stops before any use case when resolving the target path fails", async
           display: {
             sections: []
           },
-          resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
-          selectedModel: DEFAULT_MODEL,
+          resolvedPrimaryModelRef: toPrimaryModelRef(TEST_MODEL),
+          selectedModel: TEST_MODEL,
           targetPath: "/tmp/openclaw.json"
         };
       }

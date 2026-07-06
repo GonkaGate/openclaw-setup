@@ -146,7 +146,8 @@ The installer checks the live GonkaGate model catalog after you enter the `gp-..
 
 - `GonkaGate rejected the API key` means the key could not call `GET /v1/models`; check the key and rerun the installer.
 - `model catalog is temporarily unavailable` means GonkaGate returned `503`; rerun after a short wait.
-- `did not return every curated supported model` means the live catalog did not contain every model this package supports, so the installer stopped instead of writing a partial `/models` switcher.
+- `returned no usable models` means the live catalog did not include any valid model ids, so the installer stopped before writing config.
+- `Selected model "..." was not returned` means the `--model` id you supplied is not currently present in the authenticated live catalog.
 
 ## `Expected "models.providers.openai.baseUrl"...` or other GonkaGate field mismatch errors
 

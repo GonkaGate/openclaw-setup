@@ -1,6 +1,6 @@
 import process from "node:process";
 import { password, select } from "@inquirer/prompts";
-import type { SupportedModel, SupportedModelKey } from "../constants/models.js";
+import type { GonkaGateModel, GonkaGateModelKey } from "../constants/models.js";
 import { PromptError } from "./install-errors.js";
 
 export async function promptForApiKey(): Promise<string> {
@@ -36,11 +36,11 @@ interface SelectPromptConfig<Value> {
 type SelectPrompt<Value> = (config: SelectPromptConfig<Value>) => Promise<Value>;
 
 export function buildModelPromptConfig(
-  models: readonly SupportedModel[],
-  defaultModelKey: SupportedModelKey
-): SelectPromptConfig<SupportedModelKey> {
+  models: readonly GonkaGateModel[],
+  defaultModelKey: GonkaGateModelKey
+): SelectPromptConfig<GonkaGateModelKey> {
   if (models.length === 0) {
-    throw new PromptError("no_supported_models", "No supported GonkaGate models are configured.");
+    throw new PromptError("no_models", "No GonkaGate models are available.");
   }
 
   const defaultModel = requireModel(models, defaultModelKey);
@@ -52,7 +52,7 @@ export function buildModelPromptConfig(
       value: model.key,
       name: model.displayName,
       short: model.key,
-      description: `${model.description ? `${model.description} ` : ""}Model ID: ${model.modelId}`
+      description: `Model ID: ${model.modelId}`
     })),
     pageSize: Math.min(models.length, 8),
     loop: false,
@@ -63,21 +63,21 @@ export function buildModelPromptConfig(
 }
 
 export async function promptForModel(
-  models: readonly SupportedModel[],
-  defaultModelKey: SupportedModelKey,
-  selectPrompt: SelectPrompt<SupportedModelKey> = select as SelectPrompt<SupportedModelKey>
-): Promise<SupportedModel> {
+  models: readonly GonkaGateModel[],
+  defaultModelKey: GonkaGateModelKey,
+  selectPrompt: SelectPrompt<GonkaGateModelKey> = select as SelectPrompt<GonkaGateModelKey>
+): Promise<GonkaGateModel> {
   const selectedModelKey = await selectPrompt(buildModelPromptConfig(models, defaultModelKey)).catch(rethrowPromptExit);
   return requireModel(models, selectedModelKey);
 }
 
-function requireModel(models: readonly SupportedModel[], key: SupportedModelKey): SupportedModel {
+function requireModel(models: readonly GonkaGateModel[], key: GonkaGateModelKey): GonkaGateModel {
   const selectedModel = models.find((model) => model.key === key);
 
   if (!selectedModel) {
     throw new PromptError(
-      "model_registry_mismatch",
-      `Configured model "${key}" is not present in the curated model registry.`
+      "model_catalog_mismatch",
+      `Selected model "${key}" is not present in the fetched GonkaGate model catalog.`
     );
   }
 

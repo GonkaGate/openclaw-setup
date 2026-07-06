@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import test from "node:test";
-import { SUPPORTED_MODELS, toPrimaryModelRef } from "../src/constants/models.js";
+import { toPrimaryModelRef } from "../src/constants/models.js";
 import { INSTALL_ERROR_CODE, SettingsParseError, SettingsShapeError } from "../src/install/install-errors.js";
 import { loadSettings } from "../src/install/load-settings.js";
-import { createTempFilePath } from "./test-helpers.js";
+import { TEST_MODEL, createTempFilePath } from "./test-helpers.js";
 
 test("loadSettings parses JSON5 and rejects invalid JSON5 instead of overwriting it", async () => {
   const filePath = await createTempFilePath("openclaw-invalid-json5-");
@@ -216,14 +216,13 @@ test("loadSettings accepts configs that omit optional managed objects", async ()
   });
 });
 
-test("loadSettings rejects malformed managed allowlist entries for supported curated models", async () => {
-  for (const model of SUPPORTED_MODELS) {
-    const filePath = await createTempFilePath(`openclaw-invalid-allowlist-entry-${model.key}-`);
-    const primaryModelRef = toPrimaryModelRef(model);
+test("loadSettings rejects malformed managed allowlist entries", async () => {
+  const filePath = await createTempFilePath("openclaw-invalid-allowlist-entry-");
+  const primaryModelRef = toPrimaryModelRef(TEST_MODEL);
 
-    await writeFile(
-      filePath,
-      `{
+  await writeFile(
+    filePath,
+    `{
         agents: {
           defaults: {
             models: {
@@ -233,20 +232,19 @@ test("loadSettings rejects malformed managed allowlist entries for supported cur
         },
       }
 `,
-      "utf8"
-    );
+    "utf8"
+  );
 
-    await assert.rejects(
-      loadSettings(filePath),
-      (error) => {
-        assert.ok(error instanceof SettingsShapeError);
-        assert.equal(error.code, INSTALL_ERROR_CODE.settingsShapeInvalid);
-        assert.equal(error.fieldPath, `agents.defaults.models.${primaryModelRef}`);
-        assert.match(error.message, /agents\.defaults\.models\./);
-        return true;
-      }
-    );
-  }
+  await assert.rejects(
+    loadSettings(filePath),
+    (error) => {
+      assert.ok(error instanceof SettingsShapeError);
+      assert.equal(error.code, INSTALL_ERROR_CODE.settingsShapeInvalid);
+      assert.equal(error.fieldPath, `agents.defaults.models.${primaryModelRef}`);
+      assert.match(error.message, /agents\.defaults\.models\./);
+      return true;
+    }
+  );
 });
 
 test("loadSettings returns exists=false when the config file is missing", async () => {

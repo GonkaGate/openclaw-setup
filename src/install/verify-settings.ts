@@ -1,13 +1,11 @@
 import { stat } from "node:fs/promises";
 import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "../constants/gateway.js";
 import {
-  getManagedModelSelectionByPrimaryRef,
-  listSupportedPrimaryModelRefs,
-  SUPPORTED_MODELS,
-  toPrimaryModelRef,
+  modelFromPrimaryRef,
+  toManagedModelSelection,
+  type GonkaGateModel,
   type ManagedModelSelection
 } from "../constants/models.js";
-import type { SupportedModel } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
 import {
   MANAGED_SETTINGS_PATHS,
@@ -18,12 +16,12 @@ import {
 } from "./managed-settings-access.js";
 import { DEFAULT_OWNER_ONLY_MODE, formatUnixMode, hasOwnerOnlyPermissions } from "./file-permissions.js";
 import { SettingsVerificationError, describeValue, getErrorMessage } from "./install-errors.js";
-import type { ReadonlyPlainObject } from "./object-utils.js";
+import { asPlainObject, type ReadonlyPlainObject } from "./object-utils.js";
 import { validateApiKey } from "./validate-api-key.js";
 
 export interface VerifySettingsResult {
   configMode: number;
-  selectedModel: SupportedModel;
+  selectedModel: GonkaGateModel;
 }
 
 export async function verifySettings(filePath: string, settings: OpenClawConfig): Promise<VerifySettingsResult> {
@@ -57,21 +55,10 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
     });
   }
 
-  const selectedModelState = getManagedModelSelectionByPrimaryRef(primaryModelRef);
+  const selectedModel = requireSelectedModel(primaryModelRef, providerModels, filePath);
+  const selectedModelState = toManagedModelSelection(selectedModel);
 
-  if (!selectedModelState) {
-    throw new SettingsVerificationError({
-      actual: primaryModelRef,
-      expected: listSupportedPrimaryModelRefs().join(", "),
-      fieldPath: MANAGED_SETTINGS_PATHS.primaryModel,
-      filePath,
-      kind: "mismatched_managed_value",
-      message: `Expected "${MANAGED_SETTINGS_PATHS.primaryModel}" in ${filePath} to be one of: ${listSupportedPrimaryModelRefs().join(", ")}.`
-    });
-  }
-
-  verifyOpenAiProviderModelCatalog(providerModels, filePath);
-  verifyModelAllowlist(managed.allowlist, filePath);
+  verifyModelAllowlist(managed.allowlist, filePath, selectedModelState);
 
   let configMode: number;
 
@@ -98,7 +85,7 @@ export async function verifySettings(filePath: string, settings: OpenClawConfig)
 
   return {
     configMode,
-    selectedModel: selectedModelState.selectedModel
+    selectedModel
   };
 }
 
@@ -156,7 +143,8 @@ function requireManagedApiKey(value: unknown, filePath: string): string {
 
 function verifyModelAllowlist(
   allowlist: ReadonlyPlainObject | undefined,
-  filePath: string
+  filePath: string,
+  selectedModelState: ManagedModelSelection
 ): void {
   if (!allowlist) {
     throw new SettingsVerificationError({
@@ -164,13 +152,11 @@ function verifyModelAllowlist(
       filePath,
       kind: "missing_managed_value",
       message:
-        `Expected "${MANAGED_SETTINGS_PATHS.allowlist}" in ${filePath} to exist so OpenClaw /models can list curated GonkaGate models.`
+        `Expected "${MANAGED_SETTINGS_PATHS.allowlist}" in ${filePath} to exist so OpenClaw /models can list the selected GonkaGate model.`
     });
   }
 
-  for (const model of SUPPORTED_MODELS) {
-    verifyModelAllowlistEntry(allowlist, filePath, getRequiredManagedModelSelection(model));
-  }
+  verifyModelAllowlistEntry(allowlist, filePath, selectedModelState);
 }
 
 function verifyModelAllowlistEntry(
@@ -210,39 +196,44 @@ function verifyModelAllowlistEntry(
   }
 }
 
-function verifyOpenAiProviderModelCatalog(providerModels: readonly unknown[], filePath: string): void {
-  for (const model of SUPPORTED_MODELS) {
-    const expectedModelId = model.modelId;
-    const modelEntry = providerModels.find((entry) => {
-      const objectEntry = typeof entry === "object" && entry !== null && !Array.isArray(entry)
-        ? entry as ReadonlyPlainObject
-        : undefined;
+function requireSelectedModel(
+  primaryModelRef: string,
+  providerModels: readonly unknown[],
+  filePath: string
+): GonkaGateModel {
+  const selectedModel = modelFromPrimaryRef(primaryModelRef);
 
-      return objectEntry?.id === expectedModelId;
+  if (!selectedModel) {
+    throw new SettingsVerificationError({
+      actual: primaryModelRef,
+      expected: "openai/<model-id>",
+      fieldPath: MANAGED_SETTINGS_PATHS.primaryModel,
+      filePath,
+      kind: "mismatched_managed_value",
+      message: `Expected "${MANAGED_SETTINGS_PATHS.primaryModel}" in ${filePath} to be an "openai/<model-id>" ref.`
     });
-
-    if (!modelEntry) {
-      throw new SettingsVerificationError({
-        expected: expectedModelId,
-        fieldPath: MANAGED_SETTINGS_PATHS.openaiModels,
-        filePath,
-        kind: "missing_provider_model_entry",
-        message:
-          `Expected "${MANAGED_SETTINGS_PATHS.openaiModels}" in ${filePath} to include model id "${expectedModelId}" ` +
-          "so OpenClaw /models can expose the curated GonkaGate catalog."
-      });
-    }
-  }
-}
-
-function getRequiredManagedModelSelection(model: SupportedModel): ManagedModelSelection {
-  const modelSelection = getManagedModelSelectionByPrimaryRef(toPrimaryModelRef(model));
-
-  if (!modelSelection) {
-    throw new Error(`Curated model "${model.key}" does not resolve to a managed OpenClaw model ref.`);
   }
 
-  return modelSelection;
+  const providerModel = providerModels.map((entry) => asPlainObject(entry)).find((entry) => entry?.id === selectedModel.modelId);
+
+  if (!providerModel) {
+    throw new SettingsVerificationError({
+      expected: selectedModel.modelId,
+      fieldPath: MANAGED_SETTINGS_PATHS.openaiModels,
+      filePath,
+      kind: "missing_provider_model_entry",
+      message:
+        `Expected "${MANAGED_SETTINGS_PATHS.openaiModels}" in ${filePath} to include model id "${selectedModel.modelId}" ` +
+        "so OpenClaw /models can expose the selected GonkaGate model."
+    });
+  }
+
+  return {
+    ...selectedModel,
+    displayName: typeof providerModel.name === "string" && providerModel.name.trim().length > 0
+      ? providerModel.name.trim()
+      : selectedModel.displayName
+  };
 }
 
 function requireNonEmptyString(value: unknown, fieldPath: string, filePath: string): string {
