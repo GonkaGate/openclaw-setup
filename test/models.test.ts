@@ -1,28 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  DEFAULT_MODEL,
-  DEFAULT_MODEL_KEY,
-  getSupportedModelByKey,
-  requireSupportedModel,
-  SUPPORTED_MODEL_KEYS,
-  toPrimaryModelRef
-} from "../src/constants/models.js";
+import { modelFromPrimaryRef, toManagedModelSelection, toPrimaryModelRef } from "../src/constants/models.js";
+import { TEST_MODEL } from "./test-helpers.js";
 
-test("curated registry includes Kimi K2.6 as the default model and MiniMax M2.7", () => {
-  assert.equal(DEFAULT_MODEL_KEY, "kimi-k2.6");
-  assert.equal(DEFAULT_MODEL.modelId, "moonshotai/kimi-k2.6");
-  assert.deepEqual(SUPPORTED_MODEL_KEYS, ["qwen3-235b", "kimi-k2.6", "minimax-m2.7"]);
-
-  const kimi = requireSupportedModel("kimi-k2.6");
-  const minimax = requireSupportedModel("minimax-m2.7");
-
-  assert.equal(kimi.displayName, "Kimi K2.6");
-  assert.equal(kimi.modelId, "moonshotai/kimi-k2.6");
-  assert.equal(toPrimaryModelRef(kimi), "openai/moonshotai/kimi-k2.6");
-  assert.equal(minimax.displayName, "MiniMax M2.7");
-  assert.equal(minimax.modelId, "minimaxai/minimax-m2.7");
-  assert.equal(toPrimaryModelRef(minimax), "openai/minimaxai/minimax-m2.7");
-  assert.equal(DEFAULT_MODEL, kimi);
-  assert.equal(getSupportedModelByKey("missing-model"), undefined);
+test("model helpers format OpenClaw refs without a checked-in registry", () => {
+  assert.equal(toPrimaryModelRef(TEST_MODEL), "openai/acme/model-alpha");
+  assert.deepEqual(toManagedModelSelection(TEST_MODEL), {
+    allowlistEntry: {
+      alias: "acme/model-alpha"
+    },
+    primaryModelRef: "openai/acme/model-alpha",
+    selectedModel: TEST_MODEL
+  });
+  assert.deepEqual(modelFromPrimaryRef("openai/acme/model-alpha"), {
+    displayName: "acme/model-alpha",
+    key: "acme/model-alpha",
+    modelId: "acme/model-alpha"
+  });
+  assert.equal(modelFromPrimaryRef("anthropic/acme/model-alpha"), undefined);
 });

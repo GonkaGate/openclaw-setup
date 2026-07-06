@@ -26,7 +26,7 @@ npx @gonkagate/openclaw
 You will be asked for:
 
 - your GonkaGate API key (`gp-...`) in a hidden interactive prompt
-- a model from the curated GonkaGate registry after the installer confirms the live catalog through `GET /v1/models`
+- a model from the live GonkaGate catalog returned by `GET /v1/models`
 
 If the active OpenClaw config path does not exist yet, the installer will run `openclaw setup` automatically, ensure a minimal local Gateway mode, and then apply the GonkaGate-specific provider settings.
 
@@ -53,9 +53,9 @@ This command checks:
 - that `models.providers.openai.baseUrl` is `https://api.gonkagate.com/v1`
 - that `models.providers.openai.api` is `openai-completions`
 - that `models.providers.openai.apiKey` exists and still looks like a `gp-...` key
-- that `models.providers.openai.models` includes the curated GonkaGate model catalog entries needed by OpenClaw
-- that `agents.defaults.model.primary` points at a curated GonkaGate model
-- that `agents.defaults.models` contains the curated GonkaGate switcher allowlist used by OpenClaw `/models`
+- that `agents.defaults.model.primary` is an `openai/<model-id>` GonkaGate model ref
+- that `models.providers.openai.models` includes the selected model id
+- that `agents.defaults.models` contains the selected model allowlist entry used by OpenClaw `/models`
 - that the config file still uses owner-only permissions
 - that the local OpenClaw Gateway RPC is reachable through `openclaw gateway status --require-rpc --json`
 - that `openclaw health --json` reports a healthy runtime
@@ -63,13 +63,9 @@ This command checks:
 
 `verify` is still read-only, but it now expects the local OpenClaw Gateway to be running so it can prove the saved config is actually active.
 
-## Supported Models
+## Model Catalog
 
-Current curated registry in this package:
-
-- `qwen3-235b` -> `qwen/qwen3-235b-a22b-instruct-2507-fp8`
-- `kimi-k2.6` -> `moonshotai/kimi-k2.6` (default)
-- `minimax-m2.7` -> `minimaxai/minimax-m2.7`
+This package does not ship a hardcoded user-facing model catalog. After the hidden API key prompt, it calls GonkaGate `GET /v1/models`, dedupes returned model ids in response order, and uses that live list for the picker and config writes. Pressing Enter in the picker accepts the first returned model.
 
 ## What It Does
 
@@ -88,14 +84,14 @@ It also:
 - bootstraps `gateway.mode: "local"` on true first-run installs when OpenClaw has not already set a gateway mode
 - refuses to overwrite an invalid JSON5 config
 - refuses to overwrite a config that fails current OpenClaw schema validation
-- fetches `GET /v1/models` with the entered GonkaGate API key, requires every curated model to be present, and keeps model selection inside the code-owned curated registry
+- fetches `GET /v1/models` with the entered GonkaGate API key and keeps model selection inside the returned live catalog
 - creates a backup before overwriting an existing config
 - preserves unrelated top-level config keys
 - preserves other provider entries under `models.providers`
 - overwrites only the managed `models.providers.openai` fields
-- merges live curated GonkaGate entries into `models.providers.openai.models` while preserving unrelated existing entries
-- sets `agents.defaults.model.primary` to the chosen curated model
-- creates or updates `agents.defaults.models` with the curated GonkaGate switcher allowlist so `/models` can switch between supported models
+- merges live GonkaGate entries into `models.providers.openai.models` while preserving unrelated existing entries
+- sets `agents.defaults.model.primary` to the chosen live model
+- creates or updates `agents.defaults.models` with live GonkaGate switcher entries so `/models` can switch between returned models
 - validates the generated config with `openclaw config validate --json` before replacing the live file
 - writes the config atomically with owner-only permissions
 - writes backup files with owner-only permissions
@@ -109,9 +105,9 @@ This installer manages only these OpenClaw surfaces:
 - `models.providers.openai.baseUrl`
 - `models.providers.openai.apiKey`
 - `models.providers.openai.api`
-- `models.providers.openai.models` as a valid array containing the live curated GonkaGate model catalog, while preserving unrelated existing entries
+- `models.providers.openai.models` as a valid array containing the live GonkaGate model catalog, while preserving unrelated existing entries
 - `agents.defaults.model.primary`
-- `agents.defaults.models["openai/<model-id>"].alias` for curated GonkaGate models
+- `agents.defaults.models["openai/<model-id>"].alias` for live GonkaGate models
 
 Everything else is left intact.
 
@@ -124,7 +120,7 @@ These parts are intentionally fixed in the public onboarding flow:
 - API adapter: `openai-completions`
 - API key entry: interactive only
 
-This tool does not ask for a custom base URL and does not accept arbitrary model IDs.
+This tool does not ask for a custom base URL and does not accept model IDs that are absent from the authenticated GonkaGate `/v1/models` response.
 
 ## Verify
 

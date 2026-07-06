@@ -21,9 +21,9 @@ npx @gonkagate/openclaw
 The happy-path installer interactively prompts only for:
 
 - a `gp-...` API key
-- a model picker from the curated registry
+- a model picker from the live GonkaGate catalog
 
-After the API key is entered, the installer fetches `GET /v1/models` from GonkaGate, requires the live catalog to contain every code-owned curated model, and uses that live metadata to populate the OpenClaw provider model catalog.
+After the API key is entered, the installer fetches `GET /v1/models` from GonkaGate, dedupes valid returned model ids in response order, and uses that live response as the source for user-visible model choices and OpenClaw provider model catalog writes.
 
 If the active OpenClaw config path does not exist yet, the installer runs `openclaw setup` automatically to initialize the base OpenClaw config and workspace, ensures a minimal local Gateway mode when OpenClaw setup did not already pick one, and then applies GonkaGate-managed settings.
 
@@ -33,7 +33,7 @@ After setup, users can run a read-only verification command:
 npx @gonkagate/openclaw verify
 ```
 
-That command checks the current active OpenClaw config path, confirms that the managed GonkaGate provider fields, curated provider model catalog, curated `/models` allowlist, curated primary model, and owner-only file permissions still match the supported setup, and then verifies that the active local OpenClaw runtime is healthy enough to load that config through read-only CLI probes.
+That command checks the current active OpenClaw config path, confirms that the managed GonkaGate provider fields, selected primary model, selected provider model catalog entry, selected `/models` allowlist entry, and owner-only file permissions still match the supported setup, and then verifies that the active local OpenClaw runtime is healthy enough to load that config through read-only CLI probes.
 
 If the installer finishes but the local OpenClaw Gateway is not running yet, that is still a successful install outcome. In that case the installer prints one exact next command:
 
@@ -53,10 +53,10 @@ These decisions are part of the repo contract. Changing them is not a small refa
 
 - `models.providers.openai.baseUrl` is always `https://api.gonkagate.com/v1`
 - `models.providers.openai.api` is always `openai-completions`
-- `models.providers.openai.models` must always end up as a valid array containing the curated GonkaGate model catalog entries returned by `GET /v1/models`, while preserving unrelated existing entries
+- `models.providers.openai.models` must always end up as a valid array containing entries generated from the authenticated live `GET /v1/models` response, while preserving unrelated existing entries
 - users do not choose the base URL and cannot override it in the public flow
 - the provider is always `openai`, not `anthropic`
-- model choice comes only from a code-owned curated registry
+- model choice comes only from the authenticated live `GET /v1/models` response
 - the primary UX is `npx @gonkagate/openclaw`
 - the follow-up verification UX is `npx @gonkagate/openclaw verify`
 - API key entry must remain interactive and hidden
@@ -71,16 +71,9 @@ These decisions are part of the repo contract. Changing them is not a small refa
 - invalid existing JSON5 must stop the installer
 - config files must be written with owner-only permissions
 - backup files must be written with owner-only permissions
-- `agents.defaults.model.primary` must be updated to the selected curated model
-- `agents.defaults.models` must be created or updated with the curated GonkaGate allowlist so OpenClaw `/models` can switch between supported models
-- the installer must never expose arbitrary live `GET /v1/models` entries as selectable models unless they are also in the code-owned curated registry
-
-Current honest limitation:
-
-- the curated registry currently contains these supported models:
-  - `qwen3-235b` -> `qwen/qwen3-235b-a22b-instruct-2507-fp8`
-  - `kimi-k2.6` -> `moonshotai/kimi-k2.6` (default)
-  - `minimax-m2.7` -> `minimaxai/minimax-m2.7`
+- `agents.defaults.model.primary` must be updated to the selected live model
+- `agents.defaults.models` must be created or updated with the live GonkaGate model entries so OpenClaw `/models` can switch between returned models
+- the installer must never expose or write arbitrary model ids that were not returned by the authenticated live `GET /v1/models` response
 
 ## What the Repo Does and Does Not Do
 
@@ -89,7 +82,7 @@ This repo does:
 - onboarding for local `OpenClaw`
 - read-only verification for the managed GonkaGate OpenClaw config
 - read-only runtime verification for the active local OpenClaw Gateway and resolved primary model
-- live GonkaGate model catalog validation through `GET /v1/models` before prompting for a model
+- live GonkaGate model catalog fetch and validation through `GET /v1/models` before prompting for a model
 - first-run OpenClaw config bootstrap through `openclaw setup` when needed
 - first-run minimal local Gateway bootstrap when `gateway.mode` is absent
 - persistent config writing into the active OpenClaw config path resolved from the current environment
@@ -106,7 +99,7 @@ This repo does not do:
 - shell profile mutation
 - `.env` writing
 - custom base URL setup
-- arbitrary custom model setup
+- arbitrary custom model setup outside the authenticated live GonkaGate catalog
 - project-local scope in v1
 
 ## Repository Structure
@@ -244,7 +237,7 @@ It is responsible for:
 This is where the fixed product values live:
 
 - `gateway.ts` stores the public base URL, API adapter, and provider id
-- `models.ts` stores the curated supported model registry and default entry
+- `models.ts` stores model-ref and allowlist helpers; it must not contain a user-facing model registry
 
 This is one of the most sensitive parts of the repo. Do not add extra configurability here without an explicit product decision.
 
@@ -253,7 +246,7 @@ This is one of the most sensitive parts of the repo. Do not add extra configurab
 This file contains the interactive prompts built on top of `@inquirer/prompts`:
 
 - hidden prompt for API key
-- model picker from the curated registry
+- model picker from the fetched GonkaGate model catalog
 
 The key rule here is: do not log secrets and do not turn the main UX into CLI args for secrets.
 
@@ -266,9 +259,10 @@ It must:
 - call `https://api.gonkagate.com/v1/models` with the entered `gp-...` key
 - reject authentication failures before config writes
 - validate and normalize the external JSON response before the install use-case consumes it
-- keep selectable models restricted to the code-owned curated registry
-- require the live catalog to contain every curated supported model
-- map live metadata into OpenClaw provider model catalog entries without trusting unrelated response fields
+- dedupe valid model ids in response order
+- reject empty or invalid responses
+- keep selectable models restricted to the returned live catalog
+- map live model ids and optional names into OpenClaw provider model catalog entries without trusting unrelated response fields
 
 ### `src/install/check-openclaw.ts`
 
@@ -341,10 +335,10 @@ It must:
 - preserve unrelated provider entries
 - overwrite only OpenClaw-managed `openai` provider fields
 - preserve unrelated existing `models.providers.openai.models` entries when present
-- add or update curated GonkaGate provider model catalog entries under `models.providers.openai.models`
+- add or update live GonkaGate provider model catalog entries under `models.providers.openai.models`
 - set `agents.defaults.model.primary`
 - preserve unrelated keys inside `agents.defaults.model`
-- create or update `agents.defaults.models` with every curated GonkaGate allowlist entry needed by OpenClaw `/models`
+- create or update `agents.defaults.models` with every live GonkaGate model entry needed by OpenClaw `/models`
 
 It must consume the shared managed-settings boundary instead of re-deriving managed object shapes locally.
 
@@ -415,9 +409,9 @@ It must:
 - fail if `openclaw config validate --json` rejects the current config
 - fail if GonkaGate-managed provider fields do not match the fixed product values
 - fail if `models.providers.openai.apiKey` is missing or malformed
-- fail if `agents.defaults.model.primary` does not point at a curated supported model
-- fail if `models.providers.openai.models` omits a curated GonkaGate model catalog entry
-- fail if `agents.defaults.models` is missing or any managed curated allowlist entry is missing or mismatched
+- fail if `agents.defaults.model.primary` is not an `openai/<model-id>` ref
+- fail if `models.providers.openai.models` omits the selected GonkaGate model catalog entry
+- fail if `agents.defaults.models` is missing or the selected managed allowlist entry is missing or mismatched
 - fail if the config file permissions are not owner-only
 - never rewrite the config during verification
 
@@ -480,8 +474,8 @@ Baseline tests cover:
 6. If Gateway mode is still unset after that bootstrap, the installer sets `gateway.mode` to `local`
 7. The installer validates the current config through `openclaw config validate --json`
 8. The installer securely prompts for a `gp-...` API key
-9. The installer fetches `GET /v1/models` and confirms every curated supported model is live
-10. The installer shows the curated model picker
+9. The installer fetches `GET /v1/models`, dedupes valid returned ids, and rejects an empty catalog
+10. The installer shows the live model picker
 11. The config is merged with GonkaGate-managed OpenAI settings, provider model catalog entries, and `/models` allowlist entries
 12. The generated candidate config is validated through `openclaw config validate --json`
 13. A backup is created only when an existing config is being overwritten
@@ -496,7 +490,7 @@ Optional follow-up verification path:
 3. The CLI resolves the active OpenClaw config path from the current environment
 4. The CLI loads that config file without modifying it
 5. The CLI validates the current config through `openclaw config validate --json`
-6. The CLI verifies the managed GonkaGate provider fields, curated provider model catalog entries, curated `/models` allowlist, curated primary model, and owner-only file permissions
+6. The CLI verifies the managed GonkaGate provider fields, selected provider model catalog entry, selected `/models` allowlist entry, selected primary model, and owner-only file permissions
 7. The CLI confirms that the local OpenClaw Gateway RPC is reachable and the health snapshot is healthy
 8. The CLI confirms that OpenClaw resolves the expected primary model through `openclaw models status --plain`
 9. The CLI reports success or exits with a clear error
@@ -506,7 +500,7 @@ Optional follow-up verification path:
 - Do not add a base URL prompt
 - Do not add free-form custom model input
 - Do not make `--api-key` a recommended or supported path
-- Do not expose arbitrary `GET /v1/models` results as selectable models outside the curated registry
+- Do not expose or write model ids that are absent from the authenticated `GET /v1/models` response
 - Do not require `openclaw onboard` in the main public flow
 - Do not modify shell rc files
 - Do not write `.env`
@@ -575,14 +569,14 @@ Pause and double-check if your change touches:
 - OpenClaw config format
 - backup and restore behavior
 - default provider wiring
-- the curated model registry
+- the live GonkaGate model catalog boundary
 - the public install command
 
 ## Repo Philosophy
 
 This repository should stay onboarding-first.
 
-It is not a general-purpose OpenClaw provider configurator and not a playground for dozens of options. Its value is that users get one obvious, short, and safe path: install OpenClaw, run this package, enter a `gp-...` key, choose a curated model, and then keep using OpenClaw normally.
+It is not a general-purpose OpenClaw provider configurator and not a playground for dozens of options. Its value is that users get one obvious, short, and safe path: install OpenClaw, run this package, enter a `gp-...` key, choose a live GonkaGate model, and then keep using OpenClaw normally.
 
 @RTK.md
 

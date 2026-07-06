@@ -2,20 +2,14 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { Command, CommanderError, Option } from "commander";
 import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL } from "./constants/gateway.js";
-import {
-  DEFAULT_MODEL_KEY,
-  SUPPORTED_MODELS,
-  SUPPORTED_MODEL_KEYS
-} from "./constants/models.js";
 import type { CliDisplay } from "./install/cli-display.js";
 import { InstallError, CliUsageError } from "./install/install-errors.js";
 import { runInstallUseCase as runInstallUseCaseImpl } from "./install/install-use-case.js";
 import { getSettingsTarget as getSettingsTargetImpl } from "./install/settings-paths.js";
 import { runVerifyUseCase as runVerifyUseCaseImpl } from "./install/verify-use-case.js";
-import type { SupportedModelKey } from "./constants/models.js";
 
 interface CliOptions {
-  modelKey?: SupportedModelKey;
+  modelId?: string;
 }
 
 interface CliRequest extends CliOptions {
@@ -23,7 +17,7 @@ interface CliRequest extends CliOptions {
 }
 
 interface ParsedProgramOptions {
-  model?: SupportedModelKey;
+  model?: string;
 }
 
 interface ProgramOutput {
@@ -58,16 +52,11 @@ function rejectApiKeyArgs(argv: string[]): void {
 }
 
 function createProgram(handlers: CliHandlers, output?: ProgramOutput): Command {
-  const supportedModelLines = SUPPORTED_MODELS.map((model) => {
-    const defaultSuffix = model.key === DEFAULT_MODEL_KEY ? " (default)" : "";
-    return `  ${model.key}  ${model.displayName}${defaultSuffix}`;
-  }).join("\n");
-
   const program = new Command()
     .name("gonkagate-openclaw")
     .description("GonkaGate OpenClaw installer and config verifier")
     .addOption(
-      new Option("--model <model-key>", "Skip the model prompt with a curated supported model.").choices(SUPPORTED_MODEL_KEYS)
+      new Option("--model <model-id>", "Skip the model prompt with a model id returned by GonkaGate /v1/models.")
     )
     .action(handlers.onInstall)
     .helpOption("-h, --help", "Show this help.")
@@ -77,11 +66,8 @@ function createProgram(handlers: CliHandlers, output?: ProgramOutput): Command {
       `
 Examples:
   npx @gonkagate/openclaw
-  npx @gonkagate/openclaw --model ${DEFAULT_MODEL_KEY}
+  npx @gonkagate/openclaw --model provider/model-id
   npx @gonkagate/openclaw verify
-
-Supported model keys:
-${supportedModelLines}
 `
     )
     .exitOverride();
@@ -109,7 +95,7 @@ export function parseCliRequest(argv: string[], output?: ProgramOutput): CliRequ
       onInstall: (options) => {
         request = {
           command: "install",
-          modelKey: options.model
+          modelId: options.model
         };
       },
       onVerify: () => {
@@ -127,7 +113,7 @@ export function parseCliRequest(argv: string[], output?: ProgramOutput): CliRequ
 
 export function parseCliOptions(argv: string[], output?: ProgramOutput): CliOptions {
   return {
-    modelKey: parseCliRequest(argv, output).modelKey
+    modelId: parseCliRequest(argv, output).modelId
   };
 }
 
@@ -137,7 +123,7 @@ function printIntro(targetPath: string): void {
   console.log(`Target config: ${targetPath}`);
   console.log(`Managed provider: models.providers.openai -> ${GONKAGATE_OPENAI_BASE_URL}`);
   console.log(`Managed API adapter: ${GONKAGATE_OPENAI_API}`);
-  console.log(`Curated model choice: ${SUPPORTED_MODEL_KEYS.join(", ")}.\n`);
+  console.log("Model catalog: fetched from GonkaGate after API key entry.\n");
 }
 
 function printVerifyIntro(targetPath: string): void {
@@ -169,9 +155,9 @@ async function runInstall(
   cliDependencies: CliDependencies
 ): Promise<void> {
   printIntro(targetPath);
-  const request = options.modelKey
+  const request = options.modelId
     ? {
-        modelKey: options.modelKey,
+        modelId: options.modelId,
         targetPath
       }
     : {

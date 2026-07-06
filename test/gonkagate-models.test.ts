@@ -1,18 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_MODEL, requireSupportedModel } from "../src/constants/models.js";
 import { GonkaGateModelsError } from "../src/install/install-errors.js";
 import {
-  fetchCuratedGonkaGateModelCatalog,
+  fetchGonkaGateModelCatalog,
   getPromptDefaultModelKey,
   requireModelInGonkaGateCatalog
 } from "../src/install/gonkagate-models.js";
 
-test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model metadata", async () => {
+test("fetchGonkaGateModelCatalog fetches, dedupes, and maps arbitrary live model ids", async () => {
   let capturedUrl: string | undefined;
   let capturedAuthorization: string | undefined;
 
-  const catalog = await fetchCuratedGonkaGateModelCatalog("gp-test-key", {
+  const catalog = await fetchGonkaGateModelCatalog("gp-test-key", {
     fetchImpl: async (url, init) => {
       capturedUrl = url;
       capturedAuthorization = init.headers.Authorization;
@@ -23,24 +22,22 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
           object: "list",
           data: [
             {
-              id: "moonshotai/kimi-k2.6",
-              name: "Kimi K2.6 Live",
+              id: "acme/model-alpha",
+              name: "Acme Model Alpha",
               object: "model"
             },
             {
-              id: "unsupported/provider-model",
-              name: "Unsupported",
+              id: "globex/model-beta",
+              name: "Globex Model Beta",
               object: "model"
             },
             {
-              id: "minimaxai/minimax-m2.7",
-              name: "MiniMax M2.7 Live",
+              id: "acme/model-alpha",
+              name: "Duplicate Alpha",
               object: "model"
             },
             {
-              context_length: 240000,
-              id: "qwen/qwen3-235b-a22b-instruct-2507-fp8",
-              name: "Qwen3 235B A22B Instruct 2507 FP8",
+              id: "initech/model-gamma",
               object: "model"
             }
           ]
@@ -52,26 +49,33 @@ test("fetchCuratedGonkaGateModelCatalog fetches and maps live curated model meta
 
   assert.equal(capturedUrl, "https://api.gonkagate.com/v1/models");
   assert.equal(capturedAuthorization, "Bearer gp-test-key");
-  assert.deepEqual(catalog.map((entry) => entry.model.key), ["qwen3-235b", "kimi-k2.6", "minimax-m2.7"]);
-  assert.deepEqual(catalog[0]?.providerModel, {
-    contextWindow: 240000,
-    id: "qwen/qwen3-235b-a22b-instruct-2507-fp8",
-    name: "Qwen3 235B A22B Instruct 2507 FP8"
-  });
-  assert.deepEqual(catalog[1]?.providerModel, {
-    id: "moonshotai/kimi-k2.6",
-    name: "Kimi K2.6 Live"
-  });
-  assert.deepEqual(catalog[2]?.providerModel, {
-    id: "minimaxai/minimax-m2.7",
-    name: "MiniMax M2.7 Live"
-  });
+  assert.deepEqual(catalog.map((entry) => entry.model.modelId), [
+    "acme/model-alpha",
+    "globex/model-beta",
+    "initech/model-gamma"
+  ]);
+  assert.deepEqual(catalog.map((entry) => entry.providerModel), [
+    {
+      id: "acme/model-alpha",
+      name: "Acme Model Alpha"
+    },
+    {
+      id: "globex/model-beta",
+      name: "Globex Model Beta"
+    },
+    {
+      id: "initech/model-gamma",
+      name: "initech/model-gamma"
+    }
+  ]);
+  assert.equal(getPromptDefaultModelKey(catalog), "acme/model-alpha");
+  assert.equal(requireModelInGonkaGateCatalog("globex/model-beta", catalog).displayName, "Globex Model Beta");
 });
 
-test("fetchCuratedGonkaGateModelCatalog retries temporary catalog unavailability", async () => {
+test("fetchGonkaGateModelCatalog retries temporary catalog unavailability", async () => {
   let calls = 0;
 
-  const catalog = await fetchCuratedGonkaGateModelCatalog("gp-test-key", {
+  const catalog = await fetchGonkaGateModelCatalog("gp-test-key", {
     fetchImpl: async () => {
       calls += 1;
 
@@ -87,13 +91,7 @@ test("fetchCuratedGonkaGateModelCatalog retries temporary catalog unavailability
         json: async () => ({
           data: [
             {
-              id: DEFAULT_MODEL.modelId
-            },
-            {
-              id: "qwen/qwen3-235b-a22b-instruct-2507-fp8"
-            },
-            {
-              id: "minimaxai/minimax-m2.7"
+              id: "acme/model-alpha"
             }
           ]
         })
@@ -104,12 +102,12 @@ test("fetchCuratedGonkaGateModelCatalog retries temporary catalog unavailability
   });
 
   assert.equal(calls, 2);
-  assert.deepEqual(catalog.map((entry) => entry.model.key), ["qwen3-235b", DEFAULT_MODEL.key, "minimax-m2.7"]);
+  assert.deepEqual(catalog.map((entry) => entry.model.modelId), ["acme/model-alpha"]);
 });
 
-test("fetchCuratedGonkaGateModelCatalog rejects invalid API keys before config writes", async () => {
+test("fetchGonkaGateModelCatalog rejects invalid API keys before config writes", async () => {
   await assert.rejects(
-    fetchCuratedGonkaGateModelCatalog("gp-bad-key", {
+    fetchGonkaGateModelCatalog("gp-bad-key", {
       fetchImpl: async () => ({
         status: 401,
         json: async () => ({
@@ -129,9 +127,9 @@ test("fetchCuratedGonkaGateModelCatalog rejects invalid API keys before config w
   );
 });
 
-test("fetchCuratedGonkaGateModelCatalog rejects malformed model catalog responses", async () => {
+test("fetchGonkaGateModelCatalog rejects malformed model catalog responses", async () => {
   await assert.rejects(
-    fetchCuratedGonkaGateModelCatalog("gp-test-key", {
+    fetchGonkaGateModelCatalog("gp-test-key", {
       fetchImpl: async () => ({
         status: 200,
         json: async () => ({
@@ -153,52 +151,42 @@ test("fetchCuratedGonkaGateModelCatalog rejects malformed model catalog response
   );
 });
 
-test("fetchCuratedGonkaGateModelCatalog rejects catalogs that omit a curated supported model", async () => {
+test("fetchGonkaGateModelCatalog rejects empty model catalog responses", async () => {
   await assert.rejects(
-    fetchCuratedGonkaGateModelCatalog("gp-test-key", {
+    fetchGonkaGateModelCatalog("gp-test-key", {
       fetchImpl: async () => ({
         status: 200,
         json: async () => ({
-          data: [
-            {
-              id: "qwen/qwen3-235b-a22b-instruct-2507-fp8"
-            }
-          ]
+          data: []
         })
       }),
       maxAttempts: 1
     }),
     (error) => {
       assert.ok(error instanceof GonkaGateModelsError);
-      assert.equal(error.kind, "missing_supported_models");
-      assert.match(error.message, /moonshotai\/kimi-k2\.6/);
-      assert.match(error.message, /minimaxai\/minimax-m2\.7/);
+      assert.equal(error.kind, "empty_catalog");
       return true;
     }
   );
 });
 
-test("model selection helpers keep selected models inside the live curated catalog", () => {
-  const qwen = requireSupportedModel("qwen3-235b");
-  const kimi = requireSupportedModel("kimi-k2.6");
-  const catalog = [
-    {
-      allowlistEntry: {
-        alias: qwen.key
-      },
-      model: qwen,
-      primaryModelRef: "openai/qwen/qwen3-235b-a22b-instruct-2507-fp8" as const,
-      providerModel: {
-        id: qwen.modelId,
-        name: qwen.displayName
-      }
-    }
-  ];
+test("model selection helper rejects only the explicitly missing selected live id", async () => {
+  const catalog = await fetchGonkaGateModelCatalog("gp-test-key", {
+    fetchImpl: async () => ({
+      status: 200,
+      json: async () => ({
+        data: [
+          {
+            id: "acme/model-alpha"
+          }
+        ]
+      })
+    }),
+    maxAttempts: 1
+  });
 
-  assert.equal(getPromptDefaultModelKey(catalog, kimi.key), qwen.key);
-  assert.doesNotThrow(() => requireModelInGonkaGateCatalog(qwen, catalog));
   assert.throws(
-    () => requireModelInGonkaGateCatalog(kimi, catalog),
+    () => requireModelInGonkaGateCatalog("missing/model", catalog),
     (error) => {
       assert.ok(error instanceof GonkaGateModelsError);
       assert.equal(error.kind, "missing_selected_model");

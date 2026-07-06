@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { toPrimaryModelRef, DEFAULT_MODEL } from "../src/constants/models.js";
+import { toPrimaryModelRef } from "../src/constants/models.js";
+import { TEST_MODEL } from "./test-helpers.js";
 import {
   INSTALL_ERROR_CODE,
   RuntimeVerificationError,
@@ -48,7 +49,7 @@ function createProbeClient(results: readonly StubCommandResult[]) {
 }
 
 test("createOpenClawClient uses the canonical OpenClaw probe commands with piped stdio", () => {
-  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const expectedPrimaryModelRef = toPrimaryModelRef(TEST_MODEL);
   const calls: Array<{
     args: string[];
     command: string;
@@ -116,7 +117,7 @@ test("createOpenClawClient uses the canonical OpenClaw probe commands with piped
 });
 
 test("verifyOpenClawRuntime accepts a healthy Gateway, health snapshot, and resolved model", () => {
-  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const expectedPrimaryModelRef = toPrimaryModelRef(TEST_MODEL);
 
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
@@ -163,7 +164,7 @@ test("createOpenClawClient keeps parsed-output metadata on non-zero probe exits"
 });
 
 test("createOpenClawClient parses a single resolved model line and tolerates non-model log noise", () => {
-  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const expectedPrimaryModelRef = toPrimaryModelRef(TEST_MODEL);
   const parsedResult = createProbeClient([
     { status: 0, stdout: `${expectedPrimaryModelRef}\n` }
   ]).probeResolvedPrimaryModel();
@@ -193,7 +194,7 @@ test("createOpenClawClient parses a single resolved model line and tolerates non
 });
 
 test("createOpenClawClient rejects resolved-model output that contains multiple model refs", () => {
-  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const expectedPrimaryModelRef = toPrimaryModelRef(TEST_MODEL);
   const unparsedResult = createProbeClient([
     { status: 0, stdout: `${expectedPrimaryModelRef}\nopenai/other-model\n` }
   ]).probeResolvedPrimaryModel();
@@ -210,7 +211,7 @@ test("createOpenClawClient rejects resolved-model output that contains multiple 
 test("verifyOpenClawRuntime distinguishes Gateway probe command failures from gateway-unavailable reports", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 1, stderr: "rpc failed" }
     ])
@@ -229,7 +230,7 @@ test("verifyOpenClawRuntime distinguishes Gateway probe command failures from ga
 test("verifyOpenClawRuntime rejects malformed gateway status output even when the command succeeds", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 0, stdout: "not json" }
     ])
@@ -246,7 +247,7 @@ test("verifyOpenClawRuntime rejects malformed gateway status output even when th
 test("verifyOpenClawRuntime rejects malformed health output even when the command succeeds", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: "[]" }
@@ -264,7 +265,7 @@ test("verifyOpenClawRuntime rejects malformed health output even when the comman
 test("verifyOpenClawRuntime rejects gateway status reports whose rpc.ok flag is false", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":false}}' }
     ])
@@ -281,7 +282,7 @@ test("verifyOpenClawRuntime rejects gateway status reports whose rpc.ok flag is 
 test("verifyOpenClawRuntime treats structured non-zero gateway reports with rpc.ok=false as gateway unavailable", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 1, stdout: '{"rpc":{"ok":false}}' }
     ])
@@ -298,7 +299,7 @@ test("verifyOpenClawRuntime treats structured non-zero gateway reports with rpc.
 test("verifyOpenClawRuntime rejects unhealthy health snapshots", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":false}' }
@@ -316,7 +317,7 @@ test("verifyOpenClawRuntime rejects unhealthy health snapshots", () => {
 test("verifyOpenClawRuntime rejects empty resolved-model output", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":true}' },
@@ -333,7 +334,7 @@ test("verifyOpenClawRuntime rejects empty resolved-model output", () => {
 });
 
 test("verifyOpenClawRuntime rejects ambiguous resolved-model output as unexpected", () => {
-  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const expectedPrimaryModelRef = toPrimaryModelRef(TEST_MODEL);
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
     expectedPrimaryModelRef,
@@ -355,7 +356,7 @@ test("verifyOpenClawRuntime rejects ambiguous resolved-model output as unexpecte
 test("verifyOpenClawRuntime rejects mismatched resolved models", () => {
   const result = verifyOpenClawRuntime(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 0, stdout: '{"rpc":{"ok":true}}' },
       { status: 0, stdout: '{"ok":true}' },
@@ -374,7 +375,7 @@ test("verifyOpenClawRuntime rejects mismatched resolved models", () => {
 test("verifyOpenClawRuntimeForInstall tolerates gateway-unavailable results and maps the next command", () => {
   const result = verifyOpenClawRuntimeForInstall(
     "/tmp/openclaw.json",
-    toPrimaryModelRef(DEFAULT_MODEL),
+    toPrimaryModelRef(TEST_MODEL),
     createProbeClient([
       { status: 1, stdout: '{"rpc":{"ok":false}}' }
     ])
@@ -391,7 +392,7 @@ test("verifyOpenClawRuntimeForInstall keeps malformed gateway status output stri
     () =>
       verifyOpenClawRuntimeForInstall(
         "/tmp/openclaw.json",
-        toPrimaryModelRef(DEFAULT_MODEL),
+        toPrimaryModelRef(TEST_MODEL),
         createProbeClient([
           { status: 0, stdout: "not json" }
         ])
@@ -414,7 +415,7 @@ test("verifyOpenClawRuntimeForInstall rethrows strict runtime failures for insta
     () =>
       verifyOpenClawRuntimeForInstall(
         "/tmp/openclaw.json",
-        toPrimaryModelRef(DEFAULT_MODEL),
+        toPrimaryModelRef(TEST_MODEL),
         createProbeClient([
           { status: 0, stdout: '{"rpc":{"ok":true}}' },
           { status: 0, stdout: '{"ok":false}' }
@@ -438,7 +439,7 @@ test("verifyOpenClawRuntimeForVerify keeps probe command failures strict", () =>
     () =>
       verifyOpenClawRuntimeForVerify(
         "/tmp/openclaw.json",
-        toPrimaryModelRef(DEFAULT_MODEL),
+        toPrimaryModelRef(TEST_MODEL),
         createProbeClient([
           { status: 1, stderr: "rpc failed" }
         ])
@@ -458,7 +459,7 @@ test("verifyOpenClawRuntimeForVerify keeps probe command failures strict", () =>
 });
 
 test("verifyOpenClawRuntimeForVerify preserves successful runtime results unchanged", () => {
-  const expectedPrimaryModelRef = toPrimaryModelRef(DEFAULT_MODEL);
+  const expectedPrimaryModelRef = toPrimaryModelRef(TEST_MODEL);
   const result = verifyOpenClawRuntimeForVerify(
     "/tmp/openclaw.json",
     expectedPrimaryModelRef,
@@ -505,7 +506,7 @@ test("verifyOpenClawRuntimeForInstall rethrows every strict failure kind except 
           ]);
 
     assert.throws(
-      () => verifyOpenClawRuntimeForInstall("/tmp/openclaw.json", toPrimaryModelRef(DEFAULT_MODEL), runner),
+      () => verifyOpenClawRuntimeForInstall("/tmp/openclaw.json", toPrimaryModelRef(TEST_MODEL), runner),
       (error) => {
         assert.ok(error instanceof RuntimeVerificationError);
         assert.equal(error.code, INSTALL_ERROR_CODE.runtimeVerificationFailed);

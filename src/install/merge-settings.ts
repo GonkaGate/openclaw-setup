@@ -1,9 +1,8 @@
 import { GONKAGATE_OPENAI_API, GONKAGATE_OPENAI_BASE_URL, OPENCLAW_PROVIDER_ID } from "../constants/gateway.js";
-import type { ManagedAllowlistEntry, SupportedModel } from "../constants/models.js";
+import type { GonkaGateModel, ManagedAllowlistEntry } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
 import {
-  createStaticCuratedGonkaGateModelCatalog,
-  type CuratedGonkaGateModelCatalogEntry,
+  type GonkaGateModelCatalogEntry,
   type OpenClawProviderModelCatalogEntry
 } from "./gonkagate-models.js";
 import { readManagedAllowlistEntryWhenPresent, readManagedSettingsView } from "./managed-settings-access.js";
@@ -19,8 +18,8 @@ import {
 export function mergeSettingsWithGonkaGate(
   settings: OpenClawConfig,
   apiKey: string,
-  selectedModel: SupportedModel,
-  modelCatalog: readonly CuratedGonkaGateModelCatalogEntry[] = createStaticCuratedGonkaGateModelCatalog()
+  selectedModel: GonkaGateModel,
+  modelCatalog: readonly GonkaGateModelCatalogEntry[]
 ): OpenClawConfig {
   const managedSettings = readManagedSettingsView(settings, "the loaded OpenClaw config");
   const selectedModelState = requireCatalogEntryForSelectedModel(selectedModel, modelCatalog);
@@ -64,13 +63,13 @@ export function mergeSettingsWithGonkaGate(
 }
 
 function requireCatalogEntryForSelectedModel(
-  selectedModel: SupportedModel,
-  modelCatalog: readonly CuratedGonkaGateModelCatalogEntry[]
-): CuratedGonkaGateModelCatalogEntry {
-  const selectedModelState = modelCatalog.find((entry) => entry.model.key === selectedModel.key);
+  selectedModel: GonkaGateModel,
+  modelCatalog: readonly GonkaGateModelCatalogEntry[]
+): GonkaGateModelCatalogEntry {
+  const selectedModelState = modelCatalog.find((entry) => entry.model.modelId === selectedModel.modelId);
 
   if (!selectedModelState) {
-    throw new Error(`Selected model "${selectedModel.key}" is missing from the GonkaGate model catalog.`);
+    throw new Error(`Selected model "${selectedModel.modelId}" is missing from the GonkaGate model catalog.`);
   }
 
   return selectedModelState;
@@ -79,7 +78,7 @@ function requireCatalogEntryForSelectedModel(
 function mergeManagedAllowlistEntries(
   allowlist: PlainObject,
   existingAllowlist: ReadonlyPlainObject | undefined,
-  modelCatalog: readonly CuratedGonkaGateModelCatalogEntry[]
+  modelCatalog: readonly GonkaGateModelCatalogEntry[]
 ): PlainObject {
   let mergedAllowlist = allowlist;
 
@@ -116,7 +115,7 @@ function mergeManagedAllowlistEntry(
 
 function mergeOpenAiProviderModelCatalog(
   existingModels: unknown[],
-  modelCatalog: readonly CuratedGonkaGateModelCatalogEntry[]
+  modelCatalog: readonly GonkaGateModelCatalogEntry[]
 ): unknown[] {
   const mergedModels = [...existingModels];
 

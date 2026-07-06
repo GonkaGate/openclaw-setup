@@ -1,5 +1,4 @@
 import { OPENCLAW_PROVIDER_ID } from "../constants/gateway.js";
-import { listSupportedPrimaryModelRefs } from "../constants/models.js";
 import type { OpenClawConfig } from "../types/settings.js";
 import { SettingsShapeError, describeValue } from "./install-errors.js";
 import {
@@ -80,7 +79,7 @@ export function readManagedSettingsView(settings: OpenClawConfig, sourceLabel: s
   const defaultModel = readManagedDefaultModelView(defaults?.model, sourceLabel);
   const allowlist = requirePlainObjectWhenPresent(defaults?.models, MANAGED_SETTINGS_PATHS.allowlist, sourceLabel);
 
-  for (const primaryModelRef of listSupportedPrimaryModelRefs()) {
+  for (const primaryModelRef of Object.keys(allowlist ?? {})) {
     void readManagedAllowlistEntryWhenPresent(allowlist, primaryModelRef, sourceLabel);
   }
 

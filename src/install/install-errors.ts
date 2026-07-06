@@ -29,13 +29,12 @@ export type ApiKeyValidationKind = "missing" | "wrong_prefix" | "invalid_format"
 export type GonkaGateModelsFailureKind =
   | "authentication_failed"
   | "catalog_unavailable"
+  | "empty_catalog"
   | "invalid_response"
-  | "missing_supported_models"
   | "missing_selected_model"
-  | "no_supported_models"
   | "request_failed";
 export type OpenClawConfigValidationKind = "command_failed" | "invalid_config" | "unexpected_validated_path";
-export type PromptFailureKind = "cancelled" | "missing_tty" | "model_registry_mismatch" | "no_supported_models";
+export type PromptFailureKind = "cancelled" | "missing_tty" | "model_catalog_mismatch" | "no_models";
 export type SettingsMissingKind = "post_setup_target_missing" | "target_config_missing";
 export type SettingsShapeKind = "expected_array" | "expected_non_empty_string" | "expected_object" | "root_not_object";
 export type SettingsVerificationKind =

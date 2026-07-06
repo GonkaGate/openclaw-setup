@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { chmod, readFile, writeFile } from "node:fs/promises";
 import test from "node:test";
-import { DEFAULT_MODEL, toPrimaryModelRef } from "../src/constants/models.js";
+import { toPrimaryModelRef } from "../src/constants/models.js";
 import {
   runVerifyUseCase,
   type VerifyUseCaseDependencies
 } from "../src/install/verify-use-case.js";
-import { createManagedConfigFixture, createTempFilePath } from "./test-helpers.js";
+import { TEST_MODEL, createManagedConfigFixture, createTempFilePath } from "./test-helpers.js";
 
 interface RuntimeVerifyInput {
   expectedPrimaryModelRef: string;
@@ -71,7 +71,7 @@ function createVerifyHarness(
       recordStep(state, "verifyRuntime");
       return {
         kind: "healthy",
-        resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
+        resolvedPrimaryModelRef: toPrimaryModelRef(TEST_MODEL)
       };
     },
     ...overrides.openClaw
@@ -94,7 +94,7 @@ function createVerifyHarness(
       recordStep(state, "verify");
       return {
         configMode: 0o600,
-        selectedModel: DEFAULT_MODEL
+        selectedModel: TEST_MODEL
       };
     },
     ...overrides.dependencies,
@@ -135,7 +135,7 @@ test("runVerifyUseCase uses a resolved legacy target path for validation and run
   assert.deepEqual(state.verifyPaths, [targetPath]);
   assert.deepEqual(state.runtimeVerifyInputs, [
     {
-      expectedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL),
+      expectedPrimaryModelRef: toPrimaryModelRef(TEST_MODEL),
       filePath: targetPath
     }
   ]);
@@ -206,11 +206,11 @@ test("runVerifyUseCase succeeds against a real temp config without mutating it",
     agents: {
       defaults: {
         model: {
-          primary: "${toPrimaryModelRef(DEFAULT_MODEL)}",
+          primary: "${toPrimaryModelRef(TEST_MODEL)}",
         },
         models: {
-          "${toPrimaryModelRef(DEFAULT_MODEL)}": {
-            alias: "${DEFAULT_MODEL.key}",
+          "${toPrimaryModelRef(TEST_MODEL)}": {
+            alias: "${TEST_MODEL.key}",
           },
         },
       },
@@ -237,12 +237,12 @@ test("runVerifyUseCase succeeds against a real temp config without mutating it",
         validateConfig: () => {},
         verifyRuntimeForVerify: () => ({
           kind: "healthy",
-          resolvedPrimaryModelRef: toPrimaryModelRef(DEFAULT_MODEL)
+          resolvedPrimaryModelRef: toPrimaryModelRef(TEST_MODEL)
         })
       },
       verifySettings: async () => ({
         configMode: 0o600,
-        selectedModel: DEFAULT_MODEL
+        selectedModel: TEST_MODEL
       })
     }
   );

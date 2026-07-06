@@ -1,62 +1,61 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_MODEL, DEFAULT_MODEL_KEY } from "../src/constants/models.js";
 import { INSTALL_ERROR_CODE, ApiKeyValidationError, PromptError } from "../src/install/install-errors.js";
 import { buildModelPromptConfig, promptForApiKey, promptForModel } from "../src/install/prompts.js";
 import { validateApiKey } from "../src/install/validate-api-key.js";
-import { withPatchedTty } from "./test-helpers.js";
+import { TEST_MODEL, withPatchedTty } from "./test-helpers.js";
 
-test("model picker is configured with the default model for enter-to-accept flow", () => {
-  const promptConfig = buildModelPromptConfig([DEFAULT_MODEL], DEFAULT_MODEL_KEY);
+test("model picker is configured with the first fetched model for enter-to-accept flow", () => {
+  const promptConfig = buildModelPromptConfig([TEST_MODEL], TEST_MODEL.modelId);
 
-  assert.equal(promptConfig.default, DEFAULT_MODEL_KEY);
+  assert.equal(promptConfig.default, TEST_MODEL.modelId);
   assert.equal(promptConfig.theme?.indexMode, "number");
 });
 
-test("buildModelPromptConfig rejects an empty curated model registry", () => {
+test("buildModelPromptConfig rejects an empty model catalog", () => {
   assert.throws(
-    () => buildModelPromptConfig([], DEFAULT_MODEL_KEY),
+    () => buildModelPromptConfig([], TEST_MODEL.modelId),
     (error) => {
       assert.ok(error instanceof PromptError);
       assert.equal(error.code, INSTALL_ERROR_CODE.promptFailed);
-      assert.equal(error.kind, "no_supported_models");
+      assert.equal(error.kind, "no_models");
       return true;
     }
   );
 });
 
-test("buildModelPromptConfig rejects default model keys that are not present in the registry", () => {
+test("buildModelPromptConfig rejects default model ids that are not present in the catalog", () => {
   assert.throws(
-    () => buildModelPromptConfig([DEFAULT_MODEL], "missing-model" as typeof DEFAULT_MODEL_KEY),
+    () => buildModelPromptConfig([TEST_MODEL], "missing-model"),
     (error) => {
       assert.ok(error instanceof PromptError);
-      assert.equal(error.kind, "model_registry_mismatch");
+      assert.equal(error.kind, "model_catalog_mismatch");
       return true;
     }
   );
 });
 
-test("promptForModel returns the default model when the prompt resolves to the default key", async () => {
+test("promptForModel returns the default model when the prompt resolves to the default id", async () => {
   const selectedModel = await promptForModel(
-    [DEFAULT_MODEL],
-    DEFAULT_MODEL_KEY,
+    [TEST_MODEL],
+    TEST_MODEL.modelId,
     async (config) => config.default
   );
 
-  assert.equal(selectedModel.key, DEFAULT_MODEL_KEY);
-  assert.equal(selectedModel.modelId, DEFAULT_MODEL.modelId);
+  assert.equal(selectedModel.key, TEST_MODEL.modelId);
+  assert.equal(selectedModel.modelId, TEST_MODEL.modelId);
 });
 
-test("promptForModel rejects model keys that are not in the curated registry", async () => {
+test("promptForModel rejects model ids that are not in the fetched catalog", async () => {
   await assert.rejects(
     promptForModel(
-      [DEFAULT_MODEL],
-      DEFAULT_MODEL_KEY,
-      async () => "missing-model" as typeof DEFAULT_MODEL_KEY
+      [TEST_MODEL],
+      TEST_MODEL.modelId,
+      async () => "missing-model"
     ),
     (error) => {
       assert.ok(error instanceof PromptError);
-      assert.equal(error.kind, "model_registry_mismatch");
+      assert.equal(error.kind, "model_catalog_mismatch");
       return true;
     }
   );
@@ -67,7 +66,7 @@ test("promptForModel maps prompt cancellation errors to a friendly message", asy
 
   for (const errorName of cancellationErrors) {
     await assert.rejects(
-      promptForModel([DEFAULT_MODEL], DEFAULT_MODEL_KEY, async () => {
+      promptForModel([TEST_MODEL], TEST_MODEL.modelId, async () => {
         const error = new Error("cancelled");
         error.name = errorName;
         throw error;
